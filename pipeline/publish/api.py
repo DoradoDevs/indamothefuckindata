@@ -40,9 +40,13 @@ def _runs() -> list[Path]:
 
 def _run_dir(run_id: str) -> Path:
     if run_id == "latest":
+        # Newest run whose data passed validation; a broken pull never replaces a good dashboard.
         runs = _runs()
         if not runs:
             raise HTTPException(404, "no runs yet")
+        for r in runs:
+            if (_load(r / "manifest.json") or {}).get("validation") != "error":
+                return r
         return runs[0]
     if not _RUN_ID.match(run_id):
         raise HTTPException(400, "bad run id")
@@ -134,7 +138,7 @@ def explore_series(run_id: str, measure: str, by: str = "none",
     try:
         return explore.series(_warehouse(run_id), measure, by, start, end)
     except ValueError as e:
-        raise HTTPException(400, str(e))
+        raise HTTPException(400, str(e)) from e
 
 
 # Dashboard (static files). Mounted last so API routes take precedence.

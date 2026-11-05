@@ -1,5 +1,4 @@
 import json
-import sqlite3
 
 import pytest
 
@@ -239,3 +238,53 @@ def test_verifier_requires_test_for_group_comparisons():
     # Interval ends of a cited metric may appear in the text
     rng = _f("A wins 50% (likely between 40% and 60%).", [(0.5, "campaign.a.win_rate")])
     assert check_finding(rng, mets, 20, 0.01).passed
+
+
+def test_prune_keeps_newest_and_strips_raw_first(tmp_path):
+    from datetime import UTC, datetime
+
+    from pipeline.prune import prune
+
+    runs = tmp_path / "runs"
+    for name in ("20260101T000000Z", "20260601T000000Z", "20261001T000000Z", "20261101T000000Z"):
+        (runs / name / "raw").mkdir(parents=True)
+        (runs / name / "warehouse.sqlite").write_text("x")
+        (runs / name / "metrics.json").write_text("[]")
+    now = datetime(2026, 11, 5, tzinfo=UTC)
+    out = prune(runs, keep_days=180, raw_days=30, keep_min=1, now=now)
+    assert out["runs_removed"] == ["20260101T000000Z"]                     # older than 180 days
+    assert not (runs / "20260601T000000Z" / "raw").exists()               # raw stripped after 30 days
+    assert (runs / "20260601T000000Z" / "metrics.json").exists()          # history kept
+    assert (runs / "20261101T000000Z" / "raw").exists()                   # newest always whole
+
+
+def test_latest_skips_runs_that_failed_validation(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import pipeline.publish.api as api
+    from pipeline.config import Config
+
+    for name, status in (("20261104T000000Z", "ok"), ("20261105T000000Z", "error")):
+        (tmp_path / "runs" / name).mkdir(parents=True)
+        (tmp_path / "runs" / name / "manifest.json").write_text(json.dumps({"run_id": name, "validation": status}))
+    monkeypatch.setattr(api, "cfg", Config(data_dir=tmp_path, api_token=None))
+    assert TestClient(api.app).get("/runs/latest").json()["run_id"] == "20261104T000000Z"
+
+
+def test_preflight_reports_missing_settings(tmp_path):
+    from pipeline.config import Config
+    from pipeline.preflight import FAIL, run_checks
+
+    results = {name: mark for mark, name, _ in run_checks(Config(data_dir=tmp_path, hubspot_token=None, hash_salt=""))}
+    assert results["HubSpot token"] == FAIL and results["Hash key"] == FAIL
+
+
+def test_back_to_back_runs_publish_atomically(tmp_path, monkeypatch):
+    from pipeline import run
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    a = run.main(["--skip-claude"])
+    b = run.main(["--skip-claude"])
+    assert a != b and a.exists() and b.exists()
+    assert not [p for p in (tmp_path / "runs").iterdir() if p.name.startswith(".")]   # no partial folders left
+    assert json.loads((b / "manifest.json").read_text())["validation"] in ("ok", "warning")

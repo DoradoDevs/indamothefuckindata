@@ -23,7 +23,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
-from typing import Callable, Iterator
+from collections.abc import Callable, Iterator
 
 BASE = "https://api.hubapi.com"
 log = logging.getLogger("pipeline.hubspot")

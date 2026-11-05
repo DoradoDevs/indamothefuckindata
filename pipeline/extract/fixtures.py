@@ -15,9 +15,9 @@ from __future__ import annotations
 
 import math
 import random
+from datetime import UTC, date, datetime, timedelta
 
 from pipeline.extract.hubspot import hash_email
-from datetime import date, datetime, timedelta, timezone
 
 CAMPAIGNS = [
     # id, name, channel, source, weight, p_deal, p_won, mean_amount
@@ -51,8 +51,8 @@ FIXTURE_SALT = "fixture-salt"  # sample data only; real runs use the HASH_SALT s
 
 def _iso(d: date | datetime) -> str:
     if isinstance(d, datetime):
-        return d.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
-    return datetime(d.year, d.month, d.day, 12, tzinfo=timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+        return d.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    return datetime(d.year, d.month, d.day, 12, tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%S.000Z")
 
 
 def _months(start: date, n: int) -> list[date]:
@@ -68,10 +68,10 @@ def _months(start: date, n: int) -> list[date]:
 def _poisson(rng: random.Random, lam: float) -> int:
     if lam > 50:
         return max(0, round(rng.gauss(lam, math.sqrt(lam))))
-    l, k, p = math.exp(-lam), 0, 1.0
+    limit, k, p = math.exp(-lam), 0, 1.0
     while True:
         p *= rng.random()
-        if p <= l:
+        if p <= limit:
             return k
         k += 1
 
@@ -137,7 +137,7 @@ def generate(seed: int = 7, months: int = 24, end: date = date(2026, 10, 1)) -> 
             prof = rng.choices(profiles, weights)[0]
             camp_id, _name, _chan, src, _w, p_deal, p_won, mean_amt = prof
             source = src or rng.choice(OTHER_SOURCES)
-            created = datetime(ms.year, ms.month, 1, tzinfo=timezone.utc) + timedelta(
+            created = datetime(ms.year, ms.month, 1, tzinfo=UTC) + timedelta(
                 days=rng.randint(0, 27), hours=rng.randint(8, 18))
             company = rng.choice(companies)["id"]
             stage = "lead"
@@ -280,7 +280,7 @@ def generate_salesforce(hs: dict, seed: int = 11, end: date = date(2026, 10, 1))
         accounts.append({"Id": aid, "Website": f"https://sf-only-{j}.example.net", "Industry": "Carrier",
                          "BillingState": "IA", "Type": "Customer"})
         n_o += 1
-        created = datetime(end.year - 1, 1 + j % 12, 1 + j, tzinfo=timezone.utc)
+        created = datetime(end.year - 1, 1 + j % 12, 1 + j, tzinfo=UTC)
         won = rng.random() < 0.45
         opps.append({"Id": f"006FIX{n_o:05d}", "AccountId": aid, "Amount": 30000.0, "StageName": "Closed Won" if won else "Closed Lost",
                      "IsClosed": True, "IsWon": won, "CloseDate": (created + timedelta(days=60)).date().isoformat(),

@@ -18,10 +18,13 @@ Writes everything for a run to data/runs/<run_id>/:
 from __future__ import annotations
 
 import argparse
+import fcntl
 import json
 import logging
+import re
 import sys
-from datetime import datetime, timezone
+import time
+from datetime import UTC, datetime
 from pathlib import Path
 
 from pipeline.analyze import claude_runner
@@ -35,6 +38,7 @@ from pipeline.validate import validate
 from pipeline.verify.checks import check_all
 
 log = logging.getLogger("pipeline")
+RUN_ID = re.compile(r"^\d{8}T\d{6}Z$")
 
 
 def _write(path: Path, obj) -> None:
@@ -44,7 +48,8 @@ def _write(path: Path, obj) -> None:
 def _previous_metrics(cfg: Config, current_run: str) -> dict[str, float] | None:
     if not cfg.runs_dir.exists():
         return None
-    prior = sorted(p for p in cfg.runs_dir.iterdir() if p.name < current_run and (p / "metrics.json").exists())
+    prior = sorted(p for p in cfg.runs_dir.iterdir()
+                   if RUN_ID.match(p.name) and p.name < current_run and (p / "metrics.json").exists())
     if not prior:
         return None
     return {m["id"]: m["value"] for m in json.loads((prior[-1] / "metrics.json").read_text())}
@@ -130,11 +135,23 @@ def main(argv: list[str] | None = None) -> Path:
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     cfg = Config()
+    cfg.data_dir.mkdir(parents=True, exist_ok=True)
+    lock = open(cfg.data_dir / ".run.lock", "w")  # noqa: SIM115 - held for the whole run
+    try:
+        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        sys.exit("Another pipeline run is in progress; exiting.")
 
-    run_id = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
-    run_dir = cfg.runs_dir / run_id
+    run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    while (cfg.runs_dir / run_id).exists() or (cfg.runs_dir / f".{run_id}.partial").exists():
+        time.sleep(1)  # back-to-back runs within one second
+        run_id = datetime.now(UTC).strftime("%Y%m%dT%H%M%SZ")
+    final_dir = cfg.runs_dir / run_id
+    # Build in a hidden folder and publish with an atomic rename, so the dashboard
+    # (possibly on another machine sharing the volume) never sees a half-written run.
+    run_dir = cfg.runs_dir / f".{run_id}.partial"
     (run_dir / "raw").mkdir(parents=True)
-    manifest = {"run_id": run_id, "source": args.source, "started_at": datetime.now(timezone.utc).isoformat()}
+    manifest = {"run_id": run_id, "source": args.source, "started_at": datetime.now(UTC).isoformat()}
 
     log.info("extract (%s)", args.source)
     raw = extract(args.source, cfg, args.csv_dir)
@@ -187,10 +204,12 @@ def main(argv: list[str] | None = None) -> Path:
             log.exception("analysis failed")
             manifest["analysis"] = f"failed: {e}"
 
-    manifest["finished_at"] = datetime.now(timezone.utc).isoformat()
+    manifest["finished_at"] = datetime.now(UTC).isoformat()
     _write(run_dir / "manifest.json", manifest)
-    log.info("done: %s", run_dir)
-    return run_dir
+    con.close()
+    run_dir.rename(final_dir)
+    log.info("done: %s", final_dir)
+    return final_dir
 
 
 if __name__ == "__main__":

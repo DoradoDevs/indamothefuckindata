@@ -120,7 +120,8 @@ def load_dir(folder: Path, hash_salt: str = "") -> dict[str, list]:
                 out["_warnings"].append(f"{path.name}: couldn't tell what this file is (no Record ID or known "
                                         "columns); skipped")
                 continue
-            g = lambda row, f: row.get(cols[f]) if f in cols else None  # noqa: E731
+            def g(row, f, cols=cols):
+                return row.get(cols[f]) if f in cols else None
             for row in reader:
                 rid = (g(row, "id") or "").strip()
                 if not rid:

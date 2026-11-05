@@ -12,7 +12,7 @@ created before the opportunity. Deals that started first are kept but not credit
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timezone
+from datetime import UTC, datetime
 
 from pipeline.transform.normalize import _domain
 
@@ -44,8 +44,8 @@ def _dt(v) -> str | None:
     except ValueError:
         return None
     if d.tzinfo is None:
-        d = d.replace(tzinfo=timezone.utc)
-    return d.astimezone(timezone.utc).isoformat()
+        d = d.replace(tzinfo=UTC)
+    return d.astimezone(UTC).isoformat()
 
 
 def build_sf(con: sqlite3.Connection, raw: dict) -> dict:

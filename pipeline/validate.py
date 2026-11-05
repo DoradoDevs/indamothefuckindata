@@ -9,7 +9,7 @@ info (context).
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 
 
 def _rate(num: int, den: int) -> float | None:
@@ -42,7 +42,7 @@ def validate(con: sqlite3.Connection, raw: dict) -> dict:
         add("dates.contacts", "error", f"{r:.0%} of contacts have no readable create date. "
             "Date parsing or property names need fixing before analysis.", r)
 
-    future = q(f"SELECT COUNT(*) FROM contacts WHERE created_at > '{(datetime.now(timezone.utc) + timedelta(days=1)).isoformat()}'")
+    future = q(f"SELECT COUNT(*) FROM contacts WHERE created_at > '{(datetime.now(UTC) + timedelta(days=1)).isoformat()}'")
     if future:
         add("dates.future", "warning", f"{future:,} contacts have a create date in the future", future)
 

@@ -1,0 +1,29 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.11", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - run: pip install -e ".[dev]"
+      - run: ruff check .
+      - run: python -m pytest -q
+      - run: node --check pipeline/publish/static/app.js
+      - name: End-to-end on sample data (no Claude)
+        run: |
+          DATA_DIR=$RUNNER_TEMP/data EXCLUDE_CONTACT_IDS=sample-1,sample-2 python -m pipeline.run --skip-claude
+          DATA_DIR=$RUNNER_TEMP/data python -m pipeline.prune --dry-run
