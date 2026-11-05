@@ -96,8 +96,8 @@ plain-English `description`. Initial set:
 - Time series: monthly new contacts, won revenue, sessions
 - Lagged correlations: sessions vs. new contacts vs. won revenue at 0–2 month lags,
   with `n` so thin correlations are visible
-- Deal pipelines: deals, wins, win rate, and won value per pipeline (sales and
-  sponsorship are never summed by default)
+- Deal pipelines: deals, wins, win rate, and won value per pipeline (headline totals
+  currently include all HubSpot pipelines; open decision)
 - Data quality: % of deals with no amount, % of contacts with no source, campaign, or
   company
 - Service deals (§3.7)
@@ -270,7 +270,9 @@ Read-only look, summary level only; no records copied.
   Its stage IDs are GUIDs, so wins are detected with HubSpot's `hs_is_closed_won` /
   `hs_is_closed` flags rather than stage names.
 - Two deal pipelines: a sales pipeline (currently empty) and a sponsorship pipeline
-  (event sponsorships). They are reported separately and never summed by default.
+  (event sponsorships). Each has its own metrics and the dashboard can split by
+  pipeline, but the headline HubSpot totals currently include both. Open decision:
+  whether sponsorship value should count in headline totals (see STATUS.md).
 - Telecom service sales appear to live in Salesforce, not HubSpot. "Money in" analysis
   will need Salesforce opportunity data joined to HubSpot contacts/companies.
   **Pending: Salesforce read access.**

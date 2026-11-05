@@ -92,6 +92,9 @@ From a read-only, summary-level look through the connector. Details in
 
 ## Still open (can do without access)
 
+- **Sponsorship value in headline totals?** HubSpot's "won deal value" tiles currently add
+  the sponsorship pipeline to the (empty) sales pipeline. Each pipeline is also reported
+  separately. Decide whether headline totals should cover sales only; it's a small change.
 - **Website traffic source:** HubSpot's traffic API is legacy and tier-dependent. Decide
   between HubSpot and Google Analytics; the "What moves together" page is ready for it.
 - **Alerts** when a scheduled run fails validation (email or Teams), once hosting is decided.
