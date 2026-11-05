@@ -1,0 +1,174 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Sales &amp; Marketing Insights</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <header class="top">
+    <h1>Sales &amp; Marketing Insights</h1>
+    <span class="badge-internal" title="Contains deal values. Do not share outside the company.">Internal - confidential</span>
+    <div class="meta">
+      <span class="muted" id="asof">Loading…</span>
+      <button class="icon-btn" id="theme" title="Switch light/dark">◐</button>
+    </div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-page="overview" aria-selected="true">Overview</button>
+    <button role="tab" data-page="campaigns">Campaigns</button>
+    <button role="tab" data-page="sources">Lead sources</button>
+    <button role="tab" data-page="industries">Industries</button>
+    <button role="tab" data-page="patterns">What moves together</button>
+    <button role="tab" data-page="findings">All findings</button>
+    <button role="tab" data-page="health">Data health</button>
+    <button role="tab" data-page="help">How to read this</button>
+  </nav>
+
+  <div class="filters" id="filters">
+    <label>Time period
+      <select id="preset">
+        <option value="3">Last 3 months</option>
+        <option value="6">Last 6 months</option>
+        <option value="12" selected>Last 12 months</option>
+        <option value="ytd">This year so far</option>
+        <option value="all">All available data</option>
+        <option value="custom">Choose months…</option>
+      </select>
+    </label>
+    <label id="from-wrap" hidden>From <select id="from"></select></label>
+    <label id="to-wrap" hidden>To <select id="to"></select></label>
+    <label class="check"><input type="checkbox" id="compare" checked> Compare with the period before</label>
+    <span class="scope" id="scope"></span>
+  </div>
+
+  <main>
+    <!-- OVERVIEW -->
+    <section class="page active" id="page-overview">
+      <div class="tiles" id="tiles"></div>
+      <div class="note" id="recent-note" hidden>Recent months look lower for won deals because many deals that started then are still open.</div>
+
+      <div class="card">
+        <div class="card-head">
+          <div><h2 id="trend-title">Month by month</h2><p class="muted" id="trend-sub"></p></div>
+          <div class="controls">
+            <select id="trend-measure" aria-label="Measure">
+              <option value="won_value">Won deal value</option>
+              <option value="deals_won">Deals won</option>
+              <option value="new_contacts">New contacts</option>
+              <option value="deals_created">Deals created</option>
+              <option value="sessions">Website visits</option>
+            </select>
+            <select id="trend-by" aria-label="Split by">
+              <option value="none">Company total</option>
+              <option value="campaign">Split by campaign</option>
+              <option value="source">Split by lead source</option>
+              <option value="industry">Split by industry</option>
+              <option value="pipeline">Split by deal pipeline (sales vs. sponsorship)</option>
+            </select>
+          </div>
+        </div>
+        <div class="chart" id="trend-chart"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h2>What we found</h2>
+          <p class="muted">Written by Claude from all available data, then checked twice: code checks every number, and a second, independent review checks the reasoning. The time period filter doesn't change these.</p></div></div>
+        <p class="summary" id="ai-summary"></p>
+        <div class="findings" id="top-findings" style="margin-top:14px"></div>
+        <p style="margin-top:12px"><button class="linkbtn" data-goto="findings">See all findings →</button></p>
+      </div>
+
+    </section>
+
+    <!-- BREAKDOWN PAGES (campaigns / sources / industries) are filled by app.js -->
+    <section class="page" id="page-campaigns"></section>
+    <section class="page" id="page-sources"></section>
+    <section class="page" id="page-industries"></section>
+
+    <!-- PATTERNS -->
+    <section class="page" id="page-patterns">
+      <div class="page-intro">
+        <h2>What moves together</h2>
+        <p class="sub">Does a rise in one thing tend to show up later in another? These charts share the same months so you can line them up by eye. A link here doesn't prove one causes the other, but it's worth checking.</p>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h3>How strong is the link, and after how long?</h3>
+          <p class="muted">Measured across all available months, not just the selected period. Longer bar = stronger link.</p></div></div>
+        <div class="lags" id="lags"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h3>Website visits</h3></div></div>
+        <div class="chart" id="pat-a"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h3>New contacts</h3></div></div>
+        <div class="chart" id="pat-b"></div>
+      </div>
+      <div class="card">
+        <div class="card-head"><div><h3>Won deal value</h3></div></div>
+        <div class="chart" id="pat-c"></div>
+      </div>
+    </section>
+
+    <!-- FINDINGS -->
+    <section class="page" id="page-findings">
+      <div class="page-intro">
+        <h2>All findings</h2>
+        <p class="sub">Every finding from the latest analysis. "Checked" findings passed both reviews. "Reworded" ones were softened by the reviewer, usually to avoid overstating. "Not shown" ones failed a check, and we keep them here so you can see why.</p>
+      </div>
+      <div class="card-head"><div class="controls" style="margin-left:0">
+        <select id="finding-filter" aria-label="Which findings">
+          <option value="published">Checked and reworded</option>
+          <option value="rejected">Not shown (failed a check)</option>
+          <option value="all">Everything</option>
+        </select></div></div>
+      <div class="findings" id="all-findings"></div>
+    </section>
+
+    <!-- DATA HEALTH -->
+    <section class="page" id="page-health">
+      <div class="page-intro">
+        <h2>Data health</h2>
+        <p class="sub">These numbers are only as good as what's entered in HubSpot. Gaps here mean some numbers on other pages are understated.</p>
+      </div>
+      <div class="tiles" id="health-tiles"></div>
+      <div class="card" id="run-info"></div>
+    </section>
+
+    <!-- HELP -->
+    <section class="page" id="page-help">
+      <div class="page-intro"><h2>How to read this dashboard</h2></div>
+      <div class="card">
+        <dl class="defs">
+          <dt>Time period</dt><dd>Controls every chart and number on the Overview, Campaigns, Lead sources, and Industries pages. "Compare with the period before" shows the change against the same number of months just before it.</dd>
+          <dt>New contacts</dt><dd>People added to HubSpot during the period.</dd>
+          <dt>Deals won</dt><dd>Deals marked "Closed won" with a close date in the period.</dd>
+          <dt>Won deal value</dt><dd>The total "Amount" on those won deals, as entered by Sales. This is booked deal value, not cash received.</dd>
+          <dt>Win rate</dt><dd>Of the deals that finished (won or lost) in the period, the share that were won.</dd>
+          <dt>Campaign and source results</dt><dd>Count the people who first came in during the period, and every deal they have produced since. This is the fair way to compare campaigns, because it credits each campaign for the people it brought in.</dd>
+          <dt>Campaign</dt><dd>The first campaign that brought the person in (HubSpot's "first touch converting campaign").</dd>
+          <dt>Lead source</dt><dd>HubSpot's "Original source" for the contact.</dd>
+          <dt>Value per contact</dt><dd>Won deal value divided by the number of contacts. A good way to compare campaigns of different sizes.</dd>
+          <dt>Small groups</dt><dd>Rows marked "small group" rest on fewer than 20 deals. Treat them as a hint, not a conclusion.</dd>
+          <dt>Findings</dt><dd>Written by Claude from the numbers. Code checks every figure against the data, and a second Claude review checks the reasoning. Anything that fails is held back.</dd>
+        </dl>
+      </div>
+    </section>
+  </main>
+
+  <div class="tooltip" id="tooltip" role="status"></div>
+
+  <dialog id="token-dialog">
+    <form method="dialog">
+      <h3>Sign in</h3>
+      <p class="sub">Enter the dashboard access code.</p>
+      <input id="token-input" type="password" autocomplete="current-password" required>
+      <button class="icon-btn" value="ok">Continue</button>
+    </form>
+  </dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

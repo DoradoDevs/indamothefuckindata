@@ -13,3 +13,4 @@ include = ["pipeline*"]
 
 [tool.setuptools.package-data]
 "pipeline.analyze" = ["prompts/*.md"]
+"pipeline.publish" = ["static/*"]

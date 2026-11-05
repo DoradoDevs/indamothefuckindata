@@ -1,6 +1,7 @@
 # HubSpot Analytics Pipeline — Design (DRAFT)
 
-Status: draft for internal review. Built from the whiteboard sketch: HubSpot pull →
+Status: draft for internal review. Built and tested on sample data; waiting on data
+access (see [STATUS.md](STATUS.md)). Built from the whiteboard sketch: HubSpot pull →
 parser/organizer → Claude analytics → Claude double-check → dashboard API → dashboard.
 
 ## 1. Goal
@@ -43,7 +44,7 @@ sketch turns into in practice.
                                                                     │
  ┌──────────────┐  findings     ┌──────────────┐  draft      ┌──────▼───────┐
  │ 6. Dashboard │ ◀──────────── │ 5. Publish   │ ◀────────── │ 4a. Analyst  │
- │ (TBD)        │   HTTP API    │ FastAPI      │  verified   │ claude -p    │
+ │ HTML/JS      │   HTTP API    │ FastAPI      │  verified   │ claude -p    │
  └──────────────┘               └──────────────┘  findings   ├──────────────┤
                                                              │ 4b. Verify   │
                                                              │ code + claude│
@@ -55,10 +56,12 @@ Each run gets a `run_id` (UTC timestamp). Every stage writes its output to
 
 ### 3.1 Extract (`pipeline/extract/`)
 
-- `hubspot.py` — HubSpot CRM API v3 client. Pulls contacts, companies, deals,
-  campaigns, and marketing email stats, with pagination and incremental pulls by
-  `lastmodifieddate`. Auth: private-app token in `HUBSPOT_TOKEN` (or the Claude
-  HubSpot connector once it's approved — see §7).
+- `hubspot.py` — HubSpot CRM API v3 client. Pulls contacts, companies, deals, deal
+  pipelines, campaigns, and marketing email stats, with pagination. Auth: a read-only
+  private-app token in `HUBSPOT_TOKEN`, issued by the HubSpot admin. (The Claude HubSpot
+  connector is for interactive lookups in chat, not bulk extraction; see §6.) Personal
+  fields and deal names are never requested.
+- `salesforce.py` — *planned* (§3.7).
 - `fixtures.py` — generates a realistic synthetic dataset with fictional names so the
   whole pipeline can be built and tested before the connector is approved. The
   synthetic data contains a few planted patterns (one strong campaign, one that
@@ -91,7 +94,10 @@ plain-English `description`. Initial set:
 - Time series: monthly new contacts, won revenue, sessions
 - Lagged correlations: sessions vs. new contacts vs. won revenue at 0–2 month lags,
   with `n` so thin correlations are visible
-- Data quality: % of deals with no amount, % of contacts with no source/campaign
+- Deal pipelines: deals, wins, win rate, and won value per pipeline (sales and
+  sponsorship are never summed by default)
+- Data quality: % of deals with no amount, % of contacts with no source, campaign, or
+  company
 
 ### 3.4 Analyze + Verify (`pipeline/analyze/`, `pipeline/verify/`)
 
@@ -119,7 +125,11 @@ FastAPI, read-only:
 - `GET /runs` — list of runs
 - `GET /runs/latest` — summary of the latest run
 - `GET /runs/{run_id}/metrics` (filter with `?prefix=campaign.`)
-- `GET /runs/{run_id}/findings` (`?status=verified|rejected|all`)
+- `GET /runs/{run_id}/findings` (`?status=published|verified|revised|rejected|all`)
+- `GET /runs/{run_id}/explore/options` — months, campaigns, sources, industries, pipelines
+- `GET /runs/{run_id}/explore/summary?start=YYYY-MM&end=YYYY-MM&compare=true` — tiles and
+  campaign/source/industry results for any month range, plus the previous period
+- `GET /runs/{run_id}/explore/series?measure=…&by=…&start=…&end=…` — monthly trends
 
 The dashboard only talks to this API. Auth is a bearer token for now (`API_TOKEN`);
 swap for Entra ID / SSO if this runs in Azure.
@@ -152,6 +162,19 @@ Two kinds of numbers, labeled on the page:
 Both reuse the pipeline's metric code (`publish/explore.py`), so the dashboard and
 Claude's findings can't disagree on definitions.
 
+### 3.7 Salesforce (planned, pending access)
+
+HubSpot holds marketing contacts and sponsorship deals; telecom service deals appear to
+live in Salesforce. Plan:
+
+- Pull Opportunities (amount, stage, close date, type), Accounts, and Contacts, read-only.
+- Match to HubSpot: companies by web domain, then normalized name; contacts by a one-way
+  hash of email computed at extract time, so raw emails are never stored.
+- New metrics: marketing source and campaign of the people on won service deals; time
+  from first marketing touch to won deal; won service value by source and campaign.
+- Dashboard: a "Marketing → service deals" page.
+- Pricing and deal values stay internal; same confidentiality rules as §5.
+
 ## 4. Deployment (VPS or Azure container)
 
 One container image, three entry points:
@@ -170,6 +193,9 @@ never in the repo.
 - HubSpot contact records are personal data. The pipeline drops PII in stage 2, before
   anything reaches Claude or the API. Raw pulls (which do contain PII) stay on the
   pipeline host and should get a retention limit.
+- Deal names are not pulled (they often contain customer names).
+- No bulk copying of HubSpot records through the chat connector; bulk data comes only
+  through the admin-issued token.
 - Deal amounts are financial data. The dashboard should be internal-only. Nothing from
   this pipeline should go into member- or customer-facing material without review.
 - If HubSpot holds any circuit details, service locations, or call records, those are
@@ -198,18 +224,19 @@ Read-only look, summary level only; no records copied.
 
 ## 7. Open questions
 
-1. Which HubSpot hub/tier do we have? The campaigns and web-analytics APIs differ by tier
-   (Marketing Hub Professional/Enterprise for campaign attribution). This decides what
-   the extract stage can pull.
-2. Revenue: the dashboard shows "won deal value" (Amount on closed-won deals), which
-   is booked value, not cash received. Confirm with Sales how they fill in Amount
-   (monthly charge, annual, or total contract value). Actual money in would need
-   billing/accounting data, which is a later integration.
-3. How far back should the first backfill go?
-4. Run frequency — daily is the default assumption.
-5. Dashboard users: INDATEL sales staff and leadership (non-technical).
-6. Hosting: leaning Azure (Container Apps + Azure Files + Key Vault), pending INDATEL's
+1. Which HubSpot hub/tier do we have? Still unknown (shown under **Settings** →
+   **Account & Billing** → **Products & Add-ons**, admin access needed). Campaign
+   attribution and traffic reporting depend on it.
+2. Revenue: HubSpot only holds sponsorship deals. Service revenue needs Salesforce. On
+   either system, confirm how Sales fills in Amount (monthly charge, annual, or total
+   contract value). Cash actually received would need billing data, a later integration.
+3. Is anyone in Marketing able to tag campaigns consistently in HubSpot going forward?
+   Without it, campaign results stay thin.
+4. How far back should the first backfill go?
+5. Run frequency — daily is the default assumption.
+6. Dashboard users: INDATEL sales staff and leadership (non-technical). (Decided.)
+7. Hosting: leaning Azure (Container Apps + Azure Files + Key Vault), pending INDATEL's
    OK. Put Entra ID sign-in in front of the dashboard so staff use their work login.
-7. Claude stages run on Claude Code CLI with subscription auth (decided). Watch usage
+8. Claude stages run on Claude Code CLI with subscription auth (decided). Watch usage
    limits as run frequency grows; the runner is isolated in one file if we ever move
    to the API.
