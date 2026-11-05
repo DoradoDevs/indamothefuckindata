@@ -50,12 +50,17 @@ def _previous_metrics(cfg: Config, current_run: str) -> dict[str, float] | None:
     return {m["id"]: m["value"] for m in json.loads((prior[-1] / "metrics.json").read_text())}
 
 
-def extract(source: str, cfg: Config) -> dict:
+def extract(source: str, cfg: Config, csv_dir: str | None = None) -> dict:
     if source == "fixtures":
         from pipeline.extract.fixtures import generate, generate_salesforce
         raw = generate()
         raw.update(generate_salesforce(raw))
         return raw
+    if source == "csv":
+        if not csv_dir:
+            sys.exit("--csv-dir is required with --source csv")
+        from pipeline.extract.csv_import import load_dir
+        return load_dir(Path(csv_dir), cfg.hash_salt)
     if source == "hubspot":
         if not cfg.hubspot_token:
             sys.exit("HUBSPOT_TOKEN is not set")
@@ -118,7 +123,8 @@ def analyze_and_verify(cfg: Config, run_dir: Path, pack: str, metrics) -> dict:
 
 def main(argv: list[str] | None = None) -> Path:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--source", choices=["fixtures", "hubspot"], default="fixtures")
+    ap.add_argument("--source", choices=["fixtures", "hubspot", "csv"], default="fixtures")
+    ap.add_argument("--csv-dir", help="Folder of HubSpot CSV exports (with --source csv)")
     ap.add_argument("--skip-claude", action="store_true", help="Compute metrics only")
     ap.add_argument("--force", action="store_true", help="Run analysis even if validation finds errors")
     args = ap.parse_args(argv)
@@ -131,7 +137,7 @@ def main(argv: list[str] | None = None) -> Path:
     manifest = {"run_id": run_id, "source": args.source, "started_at": datetime.now(timezone.utc).isoformat()}
 
     log.info("extract (%s)", args.source)
-    raw = extract(args.source, cfg)
+    raw = extract(args.source, cfg, args.csv_dir)
     for name, rows in raw.items():
         _write(run_dir / "raw" / f"{name}.json", rows)
     manifest["record_counts"] = {k: len(v) for k, v in raw.items() if not k.startswith("_")}
