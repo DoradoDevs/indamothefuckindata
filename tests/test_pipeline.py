@@ -147,3 +147,44 @@ def test_api(tmp_path, monkeypatch):
     assert [f["finding_id"] for f in c.get("/runs/latest/findings", headers=h).json()["findings"]] == ["F1"]
     assert len(c.get("/runs/latest/findings?status=all", headers=h).json()["findings"]) == 2
     assert c.get("/runs/..%2Fetc/metrics", headers=h).status_code in (400, 404)
+
+
+# --- dashboard queries ------------------------------------------------------
+
+def test_explore_activity_cohort_and_series(tmp_path):
+    from pipeline.publish import explore
+
+    con = build_db(TINY, tmp_path / "w.sqlite")
+    con.close()
+    wh = tmp_path / "w.sqlite"
+
+    jan = explore.activity(wh, "2026-01", "2026-01")
+    assert jan["new_contacts"] == 2 and jan["deals_won"] == 0
+    feb = explore.activity(wh, "2026-02", "2026-02")
+    assert feb["deals_won"] == 1 and feb["won_value"] == 1000.0 and feb["win_rate"] == 1.0
+
+    # Cohort: January's contacts get credit for the deal that closed in February.
+    cohort = {m["id"]: m["value"] for m in explore.cohort_metrics(wh, "2026-01", "2026-01", ("campaign.",))}
+    assert cohort["campaign.c1.revenue_won"] == 1000.0
+    assert "campaign.none.contacts" not in cohort  # contact 3 joined in February
+
+    ser = explore.series(wh, "won_value", "campaign", "2026-01", "2026-03")
+    assert ser["months"] == ["2026-01", "2026-02", "2026-03"]
+    assert ser["series"] == [{"key": "c1", "values": [0.0, 1000.0, 0.0]}]
+
+    assert explore.previous_window("2026-01", "2026-03") == ("2025-10", "2025-12")
+    with pytest.raises(ValueError):
+        explore.series(wh, "won_value", "campaign; DROP TABLE deals", "2026-01", "2026-03")
+    with pytest.raises(ValueError):
+        explore.cohort_metrics(wh, "2026-01' OR 1=1 --", "2026-02", ("campaign.",))
+
+
+def test_dashboard_served(tmp_path, monkeypatch):
+    from fastapi.testclient import TestClient
+
+    import pipeline.publish.api as api
+    from pipeline.config import Config
+
+    monkeypatch.setattr(api, "cfg", Config(data_dir=tmp_path, api_token=None))
+    r = TestClient(api.app).get("/")
+    assert r.status_code == 200 and "Sales &amp; Marketing Insights" in r.text

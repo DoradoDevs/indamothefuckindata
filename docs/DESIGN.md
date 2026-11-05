@@ -124,11 +124,33 @@ FastAPI, read-only:
 The dashboard only talks to this API. Auth is a bearer token for now (`API_TOKEN`);
 swap for Entra ID / SSO if this runs in Azure.
 
-### 3.6 Dashboard
+### 3.6 Dashboard (`pipeline/publish/static/`)
 
-Not started. Two options worth weighing once we know who uses it:
-a small static page that reads the API, or an existing BI tool (Power BI reads JSON
-APIs) if that's already in use.
+Built for sales staff and leadership, not analysts. Plain HTML/JS with no build step,
+served by the same FastAPI app at `/`, so one Azure container serves both.
+
+- **One filter row** (time period presets or custom months, plus "compare with the
+  period before") scopes every number on the page, so the numbers always agree.
+- **Overview:** headline tiles (new contacts, deals created, deals won, won deal value,
+  win rate, website visits) with change vs. the previous period; a month-by-month chart
+  that can be split by campaign, source, or industry; and Claude's checked findings in
+  plain language, with the supporting numbers one click away.
+- **Campaigns / Lead sources / Industries:** side-by-side bars, the trend over time,
+  and a sortable table with period-over-period changes. Groups that rest on fewer than
+  20 finished deals are marked "small group".
+- **What moves together:** lagged links (traffic -> contacts -> revenue) explained in
+  words ("Strong link, 1 month later"), with aligned charts for checking by eye.
+- **All findings:** includes the held-back ones and why, so the checking is visible.
+- **Data health:** HubSpot data gaps that understate other numbers.
+- **How to read this:** plain-English definitions.
+
+Two kinds of numbers, labeled on the page:
+- *Activity in the period* (tiles, trends): what happened in those months.
+- *Results from people who came in during the period* (campaign/source/industry
+  pages): the fair way to credit a campaign, since its deals may close months later.
+
+Both reuse the pipeline's metric code (`publish/explore.py`), so the dashboard and
+Claude's findings can't disagree on definitions.
 
 ## 4. Deployment (VPS or Azure container)
 
@@ -159,12 +181,15 @@ never in the repo.
 1. Which HubSpot hub/tier do we have? The campaigns and web-analytics APIs differ by tier
    (Marketing Hub Professional/Enterprise for campaign attribution). This decides what
    the extract stage can pull.
-2. What counts as "revenue" — deal `amount` on closed-won, or something else (MRR,
-   contract value)? Which deal pipelines are in scope?
+2. Revenue: the dashboard shows "won deal value" (Amount on closed-won deals), which
+   is booked value, not cash received. Confirm with Sales how they fill in Amount
+   (monthly charge, annual, or total contract value). Actual money in would need
+   billing/accounting data, which is a later integration.
 3. How far back should the first backfill go?
 4. Run frequency — daily is the default assumption.
-5. Who uses the dashboard, and do they already have a BI tool?
-6. VPS or Azure? (Azure fits better if the company is already on Microsoft 365/Entra.)
+5. Dashboard users: INDATEL sales staff and leadership (non-technical).
+6. Hosting: leaning Azure (Container Apps + Azure Files + Key Vault), pending INDATEL's
+   OK. Put Entra ID sign-in in front of the dashboard so staff use their work login.
 7. Claude stages run on Claude Code CLI with subscription auth (decided). Watch usage
    limits as run frequency grows; the runner is isolated in one file if we ever move
    to the API.

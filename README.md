@@ -12,7 +12,7 @@ pip install -e ".[dev]"
 python -m pytest -q                              # tests
 python -m pipeline.run --skip-claude             # synthetic data, metrics only
 python -m pipeline.run                           # synthetic data + Claude analysis/verify
-uvicorn pipeline.publish.api:app --port 8000     # serve results
+uvicorn pipeline.publish.api:app --port 8000     # dashboard at http://localhost:8000
 ```
 
 Live HubSpot (once access is approved): `HUBSPOT_TOKEN=... python -m pipeline.run --source hubspot`.
@@ -38,7 +38,9 @@ The Claude stages run through Claude Code CLI, which can use a Claude subscripti
 | `pipeline/analyze/` | 4a. `claude -p` analyst pass, JSON-schema output |
 | `pipeline/verify/checks.py` | 4b. Every number Claude quotes must match a metric |
 | `pipeline/analyze/prompts/reviewer.md` | 4c. Second Claude pass reviews the reasoning |
-| `pipeline/publish/api.py` | 5. FastAPI for the dashboard |
+| `pipeline/publish/api.py` | 5. FastAPI: JSON API + serves the dashboard |
+| `pipeline/publish/explore.py` | 5. Date-range and grouping queries behind the dashboard |
+| `pipeline/publish/static/` | 6. Dashboard (plain HTML/JS, no build step) |
 | `Dockerfile` | One image: API by default, `python -m pipeline.run` as the scheduled job |
 
 ## Each run's output

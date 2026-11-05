@@ -2,7 +2,9 @@
 
     uvicorn pipeline.publish.api:app --port 8000
 
-If API_TOKEN is set, every route except /health requires `Authorization: Bearer <token>`.
+Serves the dashboard at / and the JSON API under /runs. If API_TOKEN is set, every
+API route except /health requires `Authorization: Bearer <token>`. (In Azure, put
+Entra ID sign-in in front of the whole app instead.)
 """
 from __future__ import annotations
 
@@ -12,8 +14,10 @@ import secrets
 from pathlib import Path
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Query
+from fastapi.staticfiles import StaticFiles
 
 from pipeline.config import Config
+from pipeline.publish import explore
 
 cfg = Config()
 app = FastAPI(title="HubSpot Analytics API", version="0.1.0")
@@ -81,3 +85,50 @@ def get_findings(run_id: str, status: str = Query("published", pattern="^(publis
     keep = {"published": {"verified", "revised"}}.get(status, {status})
     findings = data["findings"] if status == "all" else [f for f in data["findings"] if f["status"] in keep]
     return {"summary": data.get("summary"), "findings": findings}
+
+
+# --- Dashboard queries ------------------------------------------------------
+
+_MONTH = "^\\d{4}-\\d{2}$"
+_COHORT_PREFIXES = ("campaign.", "source.", "industry.")
+
+
+def _warehouse(run_id: str) -> Path:
+    p = _run_dir(run_id) / "warehouse.sqlite"
+    if not p.exists():
+        raise HTTPException(404, "run has no warehouse")
+    return p
+
+
+@app.get("/runs/{run_id}/explore/options", dependencies=[Depends(auth)])
+def explore_options(run_id: str):
+    return explore.options(_warehouse(run_id))
+
+
+@app.get("/runs/{run_id}/explore/summary", dependencies=[Depends(auth)])
+def explore_summary(run_id: str, start: str = Query(..., pattern=_MONTH), end: str = Query(..., pattern=_MONTH),
+                    compare: bool = True):
+    if start > end:
+        raise HTTPException(400, "start after end")
+    wh = _warehouse(run_id)
+    out = {"start": start, "end": end,
+           "activity": explore.activity(wh, start, end),
+           "cohort": explore.cohort_metrics(wh, start, end, _COHORT_PREFIXES)}
+    if compare:
+        ps, pe = explore.previous_window(start, end)
+        out["previous"] = {"start": ps, "end": pe, "activity": explore.activity(wh, ps, pe),
+                           "cohort": explore.cohort_metrics(wh, ps, pe, _COHORT_PREFIXES)}
+    return out
+
+
+@app.get("/runs/{run_id}/explore/series", dependencies=[Depends(auth)])
+def explore_series(run_id: str, measure: str, by: str = "none",
+                   start: str = Query(..., pattern=_MONTH), end: str = Query(..., pattern=_MONTH)):
+    try:
+        return explore.series(_warehouse(run_id), measure, by, start, end)
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
+# Dashboard (static files). Mounted last so API routes take precedence.
+app.mount("/", StaticFiles(directory=Path(__file__).parent / "static", html=True), name="dashboard")
