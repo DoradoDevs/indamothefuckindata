@@ -18,8 +18,10 @@
 
   <nav class="tabs" role="tablist">
     <button role="tab" data-page="overview" aria-selected="true">Overview</button>
+    <button role="tab" data-page="actions" hidden>Action lists</button>
     <button role="tab" data-page="campaigns">Campaigns</button>
     <button role="tab" data-page="sources">Lead sources</button>
+    <button role="tab" data-page="segments" hidden>Company types</button>
     <button role="tab" data-page="industries">Industries</button>
     <button role="tab" data-page="service" id="tab-service" hidden>Service deals</button>
     <button role="tab" data-page="engagement" id="tab-engagement" hidden>Forms &amp; engagement</button>
@@ -88,7 +90,18 @@
     <!-- BREAKDOWN PAGES (campaigns / sources / industries) are filled by app.js -->
     <section class="page" id="page-campaigns"></section>
     <section class="page" id="page-sources"></section>
+    <section class="page" id="page-segments"></section>
     <section class="page" id="page-industries"></section>
+
+    <!-- ACTION LISTS -->
+    <section class="page" id="page-actions">
+      <div class="page-intro">
+        <h2>Action lists</h2>
+        <p class="sub">People and companies to act on, pulled from HubSpot. Pick a list, search it, open records in HubSpot, or download it as a spreadsheet. Contains contact details and sponsorship values: internal use only.</p>
+      </div>
+      <div class="action-cards" id="action-cards"></div>
+      <div class="card" id="action-body"></div>
+    </section>
 
     <!-- FORMS & ENGAGEMENT -->
     <section class="page" id="page-engagement">
@@ -165,6 +178,7 @@
       </div>
       <div class="tiles" id="health-tiles"></div>
       <div class="card" id="health-checks"></div>
+      <div class="card" id="import-info" hidden></div>
       <div class="card" id="run-info"></div>
     </section>
 

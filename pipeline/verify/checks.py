@@ -24,12 +24,14 @@ _CHANCE_WORDS = ("chance", "not significant", "not statistically", "noise", "unc
                  "not a reliable difference", "may not be real")
 _SIGNIF_CLAIM = re.compile(r"\b(statistically|significant(ly)?)\b", re.I)
 _GROUP_METRIC = re.compile(
-    r"^(campaign|source|industry|pipeline|engagement|form|service\.campaign|service\.source)\.([^.]+)\.(\w+)$")
+    r"^(campaign|source|segment|industry|pipeline|engagement|form|service\.campaign|service\.source)\.([^.]+)\.(\w+)$")
 # Measures that have a test.<dim>.<key>.<measure> metric.
 TESTED = {
     "campaign": {"contact_to_deal_rate", "win_rate", "revenue_per_contact"},
-    "source": {"contact_to_won_rate", "revenue_per_contact", "converted_rate", "email_click_rate", "email_open_rate"},
+    "source": {"contact_to_won_rate", "revenue_per_contact", "converted_rate", "email_click_rate", "email_open_rate",
+               "open_rate_emailed", "click_rate_emailed"},
     "engagement": {"email_open_rate", "email_click_rate", "form_rate"},
+    "segment": {"converted_rate", "open_rate_emailed", "click_rate_emailed"},
     "form": {"converted_rate"},
     "industry": {"win_rate"},
     "service_campaign": {"contact_to_service_win_rate", "service_value_per_contact"},

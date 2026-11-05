@@ -96,10 +96,16 @@ def get_validation(run_id: str):
     return _load(_run_dir(run_id) / "validation.json") or {"status": "unknown", "checks": []}
 
 
+@app.get("/runs/{run_id}/worklists", dependencies=[Depends(auth)])
+def get_worklists(run_id: str):
+    return _load(_run_dir(run_id) / "worklists.json") or {"has_details": False, "lists": []}
+
+
 # --- Dashboard queries ------------------------------------------------------
 
 _MONTH = "^\\d{4}-\\d{2}$"
-_COHORT_PREFIXES = ("campaign.", "source.", "industry.", "test.", "form.", "engagement.", "overview.")
+_COHORT_PREFIXES = ("campaign.", "source.", "industry.", "test.", "form.", "engagement.", "overview.", "segment.",
+                    "followup.", "import.")
 
 
 def _warehouse(run_id: str) -> Path:

@@ -171,7 +171,8 @@ def main(argv: list[str] | None = None) -> Path:
     manifest["extract_warnings"] = raw.get("_warnings", [])
 
     log.info("organize")
-    con = build_db(raw, run_dir / "warehouse.sqlite", cfg.exclude_contact_ids)
+    con = build_db(raw, run_dir / "warehouse.sqlite", cfg.exclude_contact_ids, cfg.include_contact_details,
+                   cfg.internal_domains)
     if raw.get("sf_opportunities") is not None:
         from pipeline.transform.salesforce import build_sf
         manifest["salesforce_match"] = build_sf(con, raw)
@@ -187,6 +188,8 @@ def main(argv: list[str] | None = None) -> Path:
     log.info("metrics")
     metrics = compute(con, cfg.converted_stages) + compute_service(con)
     _write(run_dir / "metrics.json", agent_pack.metrics_json(metrics))
+    from pipeline import worklists
+    _write(run_dir / "worklists.json", worklists.build(con, cfg.converted_stages, cfg.hubspot_portal_id, cfg.key_segments))
     pack = agent_pack.build(con, metrics, _previous_metrics(cfg, run_id), context=_context(cfg),
                             notes=raw.get("_warnings", []))
     _write(run_dir / "agent_pack.md", pack)

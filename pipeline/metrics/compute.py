@@ -200,6 +200,69 @@ def _conversion_and_engagement(m: _Collector, con: sqlite3.Connection, converted
     m.add("overview.form_rate", _ratio(forms, n), "ratio", n, "Share of contacts who have submitted a website form",
           ci=stats.wilson(forms, n))
 
+    # Email reach: rates among contacts who were actually sent marketing email
+    emailed, op_e, cl_e = con.execute("""SELECT COALESCE(SUM(email_delivered > 0),0),
+        COALESCE(SUM(email_delivered > 0 AND email_opened = 1),0), COALESCE(SUM(email_delivered > 0 AND email_clicked = 1),0)
+        FROM contacts""").fetchone()
+    m.add("overview.emailed_contacts", emailed, "count", n, "Contacts who have been sent at least one marketing email")
+    m.add("overview.emailed_rate", _ratio(emailed, n), "ratio", n,
+          "Share of contacts who have been sent at least one marketing email", ci=stats.wilson(emailed, n))
+    m.add("overview.open_rate_emailed", _ratio(op_e, emailed), "ratio", emailed,
+          "Of contacts sent marketing email, the share who have opened one", ci=stats.wilson(op_e, emailed))
+    m.add("overview.click_rate_emailed", _ratio(cl_e, emailed), "ratio", emailed,
+          "Of contacts sent marketing email, the share who have clicked one", ci=stats.wilson(cl_e, emailed))
+    for dim, col in (("source", "COALESCE(source,'UNKNOWN')"), ("segment", "COALESCE(segment,'Unknown')")):
+        rows = con.execute(f"""SELECT {col}, COUNT(*), COALESCE(SUM({conv_sql}),0), COALESCE(SUM(email_delivered > 0),0),
+            COALESCE(SUM(email_delivered > 0 AND email_opened = 1),0), COALESCE(SUM(email_delivered > 0 AND email_clicked = 1),0),
+            COALESCE(SUM(form_submitted),0) FROM contacts GROUP BY 1""", args).fetchall()
+        g_conv, g_open, g_click = {}, {}, {}
+        for k, cn, cv, em, op, cl, fm in rows:
+            p = f"{dim}.{k}"
+            label = f"{dim} {k}"
+            if dim == "segment":
+                m.add(f"{p}.contacts", cn, "count", cn, f"Contacts at companies of type {k}")
+                m.add(f"{p}.converted_rate", _ratio(cv, cn), "ratio", cn,
+                      f"Share of contacts at {k} companies who reached {conv_label}", ci=stats.wilson(cv, cn))
+                m.add(f"{p}.form_rate", _ratio(fm, cn), "ratio", cn, f"Share of contacts at {k} companies who "
+                      "submitted a form", ci=stats.wilson(fm, cn))
+            m.add(f"{p}.emailed_rate", _ratio(em, cn), "ratio", cn, f"Share of {label} contacts sent marketing email",
+                  ci=stats.wilson(em, cn))
+            m.add(f"{p}.open_rate_emailed", _ratio(op, em), "ratio", em, f"Of {label} contacts sent email, share who "
+                  "opened", ci=stats.wilson(op, em))
+            m.add(f"{p}.click_rate_emailed", _ratio(cl, em), "ratio", em, f"Of {label} contacts sent email, share who "
+                  "clicked", ci=stats.wilson(cl, em))
+            g_conv[k], g_open[k], g_click[k] = (cv, cn), (op, em), (cl, em)
+        names = {k: f"{dim} {k}" for k in g_conv}
+        if dim == "segment":
+            _proportion_tests(m, "segment", "converted_rate", f"Share reaching {conv_label}", g_conv, names)
+        _proportion_tests(m, dim, "open_rate_emailed", "Open rate among emailed", g_open, names)
+        _proportion_tests(m, dim, "click_rate_emailed", "Click rate among emailed", g_click, names)
+
+    # Import batches (HubSpot records the import ID in the source drill-down)
+    for imp, cn, first, _last, cv, em, op in con.execute(f"""
+            SELECT source_detail_2, COUNT(*), MIN(created_at), MAX(created_at), COALESCE(SUM({conv_sql}),0),
+                   COALESCE(SUM(email_delivered > 0),0), COALESCE(SUM(email_delivered > 0 AND email_opened = 1),0)
+            FROM contacts WHERE source_detail_1 = 'IMPORT' AND source_detail_2 IS NOT NULL GROUP BY 1""", args):
+        p = f"import.{imp}"
+        when = (first or "")[:10]
+        m.add(f"{p}.contacts", cn, "count", cn, f"Contacts from HubSpot import {imp} (first added {when})")
+        m.add(f"{p}.emailed_rate", _ratio(em, cn), "ratio", cn, f"Share of import {imp} sent marketing email",
+              ci=stats.wilson(em, cn))
+        m.add(f"{p}.open_rate_emailed", _ratio(op, em), "ratio", em, f"Of import {imp} contacts sent email, share "
+              "who opened", ci=stats.wilson(op, em))
+        m.add(f"{p}.converted_rate", _ratio(cv, cn), "ratio", cn, f"Share of import {imp} who reached {conv_label}",
+              ci=stats.wilson(cv, cn))
+
+    # Follow-up on website inquiries (form submitters)
+    inq, worked, open_unworked = con.execute(f"""SELECT COUNT(*), COALESCE(SUM(sales_activities > 0),0),
+        COALESCE(SUM(sales_activities = 0 AND NOT {conv_sql}),0) FROM contacts WHERE form_submitted = 1""", args).fetchone()
+    m.add("followup.inquiries", inq, "count", inq, "Contacts who have submitted a website form")
+    m.add("followup.worked_rate", _ratio(worked, inq), "ratio", inq,
+          "Share of form submitters with any sales activity logged in HubSpot (call, email, meeting, note)",
+          ci=stats.wilson(worked, inq))
+    m.add("followup.unworked_prospects", open_unworked, "count", inq,
+          f"Form submitters with no logged sales activity who haven't reached {conv_label}")
+
     # By lead source
     rows = con.execute(f"""SELECT COALESCE(source,'UNKNOWN'), COUNT(*), COALESCE(SUM({conv_sql}),0),
                                   COALESCE(SUM(email_opened),0), COALESCE(SUM(email_clicked),0),
@@ -251,6 +314,15 @@ def _conversion_and_engagement(m: _Collector, con: sqlite3.Connection, converted
         form_g[k] = (cv, cn)
     _proportion_tests(m, "form", "converted_rate", f"Share reaching {conv_label}", form_g, form_names)
 
+    no_owner = con.execute("SELECT COUNT(*) FROM contacts WHERE owner_id IS NULL").fetchone()[0]
+    m.add("quality.contacts_without_owner_rate", _ratio(no_owner, n), "ratio", n, "Share of contacts with no owner")
+    try:
+        dropped = con.execute("SELECT value FROM load_notes WHERE key='internal_contacts_dropped'").fetchone()
+        if dropped and dropped[0]:
+            m.add("quality.internal_contacts_excluded", dropped[0], "count", dropped[0],
+                  "Staff contacts (internal email domains) left out of the analysis")
+    except sqlite3.OperationalError:
+        pass
     never = con.execute("SELECT COUNT(*) FROM contacts WHERE email_opened = 0 AND form_submitted = 0").fetchone()[0]
     m.add("quality.contacts_never_engaged_rate", _ratio(never, n), "ratio", n,
           "Share of contacts who have never opened a marketing email or submitted a form")

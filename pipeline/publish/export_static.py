@@ -20,7 +20,7 @@ from pipeline.publish import api
 STATIC = Path(__file__).parent / "static"
 PRESETS = ("3", "6", "12", "ytd", "all")
 MEASURES = ("won_value", "deals_won", "new_contacts", "deals_created", "sessions")
-GROUPINGS = ("none", "campaign", "source", "industry", "pipeline")
+GROUPINGS = ("none", "campaign", "source", "industry", "pipeline", "segment")
 
 
 def _shift(month: str, n: int) -> str:
@@ -53,7 +53,8 @@ def collect(client: TestClient) -> dict[str, object]:
         data[path] = r.json()
         return data[path]
 
-    for path in ("/runs/latest", "/runs/latest/metrics", "/runs/latest/findings?status=all", "/runs/latest/validation"):
+    for path in ("/runs/latest", "/runs/latest/metrics", "/runs/latest/findings?status=all", "/runs/latest/validation",
+                 "/runs/latest/worklists"):
         get(path)
     opts = get("/runs/latest/explore/options")
     windows = {_window(p, opts["months"]) for p in PRESETS}

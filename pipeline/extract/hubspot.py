@@ -32,8 +32,12 @@ PROPERTIES = {
     "contacts": ["createdate", "lastmodifieddate", "lifecyclestage", "hs_analytics_source",
                  "hs_analytics_first_touch_converting_campaign", "email",
                  "hs_email_last_open_date", "hs_email_last_click_date", "num_conversion_events",
-                 "first_conversion_event_name", "hs_analytics_num_visits"],
-    "companies": ["name", "domain", "industry", "state", "createdate"],
+                 "first_conversion_event_name", "hs_analytics_num_visits",
+                 "hs_email_open", "hs_email_click", "hs_email_delivered", "hs_email_optout",
+                 "recent_conversion_event_name", "recent_conversion_date", "notes_last_contacted", "num_notes",
+                 "hubspot_owner_id", "hs_analytics_source_data_1", "hs_analytics_source_data_2",
+                 "hs_analytics_last_timestamp"],
+    "companies": ["name", "domain", "industry", "state", "createdate", "type", "city", "num_associated_contacts"],
     # hs_is_closed_won / hs_is_closed are used instead of stage IDs: pipelines migrated
     # from Salesforce use GUID stage IDs, not "closedwon". Deal names aren't pulled;
     # they often contain customer names and aren't needed for analysis.

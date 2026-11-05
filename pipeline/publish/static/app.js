@@ -106,6 +106,7 @@ function colorFor(dim, key) {
   if (dim === "none" || key === "All") return cssVar("--s1");
   const list = dim === "campaign" ? state.opts.campaigns.map((c) => c.id)
     : dim === "pipeline" ? state.opts.pipelines.map((p) => p.id)
+    : dim === "segment" ? (state.opts.segments || [])
     : dim === "source" ? state.opts.sources : state.opts.industries;
   const i = list.indexOf(key);
   return i >= 0 && i < 8 ? cssVar(`--s${i + 1}`) : cssVar("--s-other");
@@ -330,8 +331,12 @@ const TILES = [
   { key: "new_contacts", label: "New contacts", f: fmt.count, hint: "People added to HubSpot in the period." },
   { key: "converted", label: "Reached goal status", f: fmt.count, needsKey: true,
     hint: "Contacts added in the period who have reached the account's goal lifecycle stage." },
-  { key: "email_click_rate", label: "Clicked an email", f: fmt.pct, kind: "pts", needsKey: true,
-    hint: "Share of contacts added in the period who have ever clicked a marketing email." },
+  { key: "emailed_rate", label: "Sent marketing email", f: fmt.pct, kind: "pts", needsKey: true,
+    hint: "Share of contacts added in the period who have been sent at least one marketing email." },
+  { key: "email_click_rate", label: "Clicked (of those emailed)", f: fmt.pct, kind: "pts", needsKey: true,
+    hint: "Of contacts added in the period who were sent marketing email, the share who clicked a link." },
+  { key: "followup_rate", label: "Inquiries followed up", f: fmt.pct, kind: "pts", needsKey: true,
+    hint: "Of people who filled in a website form in the period, the share with any sales activity (call, email, meeting, note) logged in HubSpot." },
   { key: "deals_created", label: "Deals created", f: fmt.count, hint: "New deals opened in the period." },
   { key: "deals_won", label: "Deals won", f: fmt.count, hint: "Deals marked Closed won with a close date in the period." },
   { key: "won_value", label: "Won deal value", f: fmt.usdShort, hint: "Total Amount on deals won in the period. Booked value, not cash received." },
@@ -363,7 +368,8 @@ function renderTiles() {
     if (state.compare && prev) {
       // A partly covered earlier period (e.g. before the data starts, or containing a one-off
       // import) makes percentage changes meaningless, so don't show them.
-      if (prevPartial) deltaEl = h("div", { class: "delta" }, "No full earlier period to compare");
+      if (prev.end < first) deltaEl = h("div", { class: "delta" }, " ");  // nothing earlier: say nothing
+      else if (prevPartial) deltaEl = h("div", { class: "delta" }, "No full earlier period to compare");
       else {
         const c = change(cur, prev.activity[t.key], t.kind || "pct");
         if (c) {
@@ -479,13 +485,30 @@ const BREAKDOWNS = {
     cols: [
       { m: "contacts", label: "Contacts", f: fmt.count },
       { m: "converted_rate", label: "Reached goal status", f: fmt.pct, kind: "pts", tested: "share reaching goal status" },
-      { m: "email_open_rate", label: "Opened an email", f: fmt.pct, kind: "pts", tested: "email open rate" },
-      { m: "email_click_rate", label: "Clicked an email", f: fmt.pct, kind: "pts", tested: "email click rate" },
+      { m: "emailed_rate", label: "Sent email", f: fmt.pct, kind: "pts" },
+      { m: "open_rate_emailed", label: "Opened (of emailed)", f: fmt.pct, kind: "pts", tested: "open rate" },
+      { m: "click_rate_emailed", label: "Clicked (of emailed)", f: fmt.pct, kind: "pts", tested: "click rate" },
       { m: "form_rate", label: "Submitted a form", f: fmt.pct, kind: "pts" },
       { m: "deals_won", label: "Deals won", f: fmt.count },
       { m: "revenue_won", label: "Won value", f: fmt.usd, short: fmt.usdShort },
     ],
     defaultBar: "converted_rate",
+  },
+  segments: {
+    dim: "segment", prefix: "segment.", title: "Company types",
+    intro: "Results by the type of company a contact works at (HubSpot's company Type), matched through the company record or the contact's email domain. Counts people who came in during the selected period.",
+    keys: () => state.opts.segments || [],
+    cols: [
+      { m: "contacts", label: "Contacts", f: fmt.count },
+      { m: "converted_rate", label: "Reached goal status", f: fmt.pct, kind: "pts", tested: "share reaching goal status" },
+      { m: "emailed_rate", label: "Sent email", f: fmt.pct, kind: "pts" },
+      { m: "open_rate_emailed", label: "Opened (of emailed)", f: fmt.pct, kind: "pts", tested: "open rate" },
+      { m: "click_rate_emailed", label: "Clicked (of emailed)", f: fmt.pct, kind: "pts", tested: "click rate" },
+      { m: "form_rate", label: "Submitted a form", f: fmt.pct, kind: "pts" },
+    ],
+    defaultBar: "open_rate_emailed",
+    defaultSort: "contacts",
+    minContacts: 10,
   },
   industries: {
     dim: "industry", prefix: "industry.", title: "Industries",
@@ -555,7 +578,9 @@ function renderBreakdown(name, { trendOnly = false } = {}) {
   const cur = cohortIndex(state.summary.cohort, cfg.prefix);
   const prev = state.compare && state.summary.previous && state.summary.previous.start >= state.opts.months[0]
     ? cohortIndex(state.summary.previous.cohort, cfg.prefix) : null;
-  const keys = cfg.keys().filter((k) => cur[k]);
+  const allKeys = cfg.keys().filter((k) => cur[k]);
+  const keys = allKeys.filter((k) => !cfg.minContacts || ((cur[k].contacts || {}).value || 0) >= cfg.minContacts);
+  const hiddenSmall = allKeys.length - keys.length;
   const tests = cohortIndex(state.summary.cohort, `test.${cfg.dim}.`);
 
   // Bars
@@ -574,7 +599,7 @@ function renderBreakdown(name, { trendOnly = false } = {}) {
   });
 
   // Table
-  let sortCol = page._sortCol || col.m, sortDir = page._sortDir || "descending";
+  let sortCol = page._sortCol || cfg.defaultSort || col.m, sortDir = page._sortDir || "descending";
   const val = (k, c) => (cur[k][c] || {}).value;
   const sorted = [...keys].sort((a, b) => {
     const va = sortCol === "_name" ? labelFor(cfg.dim, a) : val(a, sortCol), vb = sortCol === "_name" ? labelFor(cfg.dim, b) : val(b, sortCol);
@@ -616,6 +641,51 @@ function renderBreakdown(name, { trendOnly = false } = {}) {
   page.querySelector('[data-role="table-sub"]').textContent = prev
     ? `Small grey numbers show the change from ${rangeLabel(state.summary.previous.start, state.summary.previous.end)}. Hover a number for its likely range. Click a column to sort.`
     : "Hover a number for its likely range. Click a column to sort.";
+  if (hiddenSmall) page.querySelector('[data-role="table-sub"]').textContent +=
+    ` ${hiddenSmall} type${hiddenSmall === 1 ? "" : "s"} with fewer than ${cfg.minContacts} contacts hidden.`;
+}
+
+// ---------- action lists ----------------------------------------------------------
+function csvCell(v) {
+  if (v == null) return "";
+  const s = String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+function renderActions() {
+  const wl = state.worklists;
+  if (!wl) return;
+  const sel = state.actionList || wl.lists[0].id;
+  $("#action-cards").replaceChildren(...wl.lists.map((l) => h("button", {
+    type: "button", class: `action-card${l.id === sel ? " on" : ""}`,
+    onclick: () => { state.actionList = l.id; state.actionFilter = ""; renderActions(); } },
+    h("span", { class: "n" }, fmt.count(l.count)), h("span", { class: "t" }, l.title))));
+  const list = wl.lists.find((l) => l.id === sel);
+  const q = (state.actionFilter || "").toLowerCase();
+  const rows = list.rows.filter((r) => !q || list.columns.some(([k]) => String(r[k] ?? "").toLowerCase().includes(q)));
+  const fmtCell = (k, v) => k === "value" ? fmt.usd(v) : k === "source" && v ? prettySource(v) : (v ?? "");
+  const NOWRAP = new Set(["form_at", "last_click", "last_open", "last_contacted", "created", "days_waiting", "value",
+    "clicks", "opens", "visits"]);
+  const search = h("input", { type: "search", placeholder: "Search this list…", value: state.actionFilter || "", class: "action-search",
+    oninput: (e) => { state.actionFilter = e.target.value; renderActions(); const el = $(".action-search"); el.focus(); el.setSelectionRange(el.value.length, el.value.length); } });
+  const dl = h("button", { type: "button", class: "icon-btn", onclick: () => {
+    const head = list.columns.map(([, l]) => l).concat(["HubSpot link"]);
+    const body = rows.map((r) => list.columns.map(([k]) => csvCell(r[k])).concat([csvCell(r.link)]).join(","));
+    const blob = new Blob([[head.map(csvCell).join(","), ...body].join("\n")], { type: "text/csv" });
+    const a = h("a", { href: URL.createObjectURL(blob), download: `${list.id}.csv` }); document.body.append(a); a.click(); a.remove();
+  } }, "Download spreadsheet (CSV)");
+  $("#action-body").replaceChildren(
+    h("div", { class: "card-head" }, h("div", {}, h("h3", {}, list.title), h("p", { class: "sub", style: "max-width:820px" }, list.why),
+      list.note ? h("p", { class: "muted" }, list.note) : null),
+      h("div", { class: "controls" }, search, dl)),
+    h("p", { class: "muted", style: "margin-bottom:8px" }, `${fmt.count(rows.length)} of ${fmt.count(list.count)} shown`),
+    h("div", { class: "table-wrap" }, h("table", { class: "action-table" },
+      h("thead", {}, h("tr", {}, ...list.columns.map(([, l]) => h("th", {}, l)), h("th", {}, ""))),
+      h("tbody", {}, ...rows.slice(0, 500).map((r) => h("tr", {},
+        ...list.columns.map(([k]) => h("td", { class: NOWRAP.has(k) ? "nw" : null },
+          k === "email" && r[k] ? h("a", { href: `mailto:${r[k]}` }, r[k]) : String(fmtCell(k, r[k])))),
+        h("td", { class: "nw" }, r.link ? h("a", { href: r.link, target: "_blank", rel: "noopener" }, "HubSpot ↗") : "")))))),
+    rows.length > 500 ? h("p", { class: "muted" }, "Showing the first 500. Download the spreadsheet for all of them.") : null);
 }
 
 // ---------- forms & engagement --------------------------------------------------
@@ -787,6 +857,17 @@ function renderHealth() {
       : "✓ No problems found in the latest pull."),
     ...(checks.length ? [h("ul", { class: "checks" }, ...checks.map((c) =>
       h("li", { class: c.level }, h("span", { class: "ic", "aria-label": c.level }, ICON[c.level] || ""), c.message)))] : []));
+  const imports = cohortIndex(Object.values(state.metrics), "import.");
+  const ikeys = Object.keys(imports).sort((a, b) => (imports[b].contacts || {}).value - (imports[a].contacts || {}).value);
+  $("#import-info").hidden = !ikeys.length;
+  $("#import-info").replaceChildren(h("h3", {}, "Import lists"),
+    h("p", { class: "muted", style: "margin:4px 0 10px" }, "Contacts added by importing a file. Look up an import ID in HubSpot under Contacts → Import to see its file name, and give future imports clear names."),
+    h("div", { class: "table-wrap" }, h("table", {},
+      h("thead", {}, h("tr", {}, ...["Import ID", "Contacts", "Sent email", "Opened (of emailed)", "Reached goal status"].map((x) => h("th", {}, x)))),
+      h("tbody", {}, ...ikeys.map((k) => { const m = imports[k]; return h("tr", {},
+        h("td", {}, k, h("span", { class: "chg" }, (m.contacts.description.match(/first added (\S+)/) || [, ""])[1])),
+        h("td", {}, fmt.count(m.contacts.value)), h("td", {}, fmt.pct((m.emailed_rate || {}).value)),
+        h("td", {}, fmt.pct((m.open_rate_emailed || {}).value)), h("td", {}, fmt.pct((m.converted_rate || {}).value))); }))))); 
   const man = state.manifest;
   const counts = Object.entries(man.record_counts || {}).map(([k, v]) => `${v.toLocaleString("en-US")} ${k.replace(/_/g, " ")}`).join(" · ");
   $("#run-info").replaceChildren(h("h3", {}, "About this data"),
@@ -810,9 +891,10 @@ function renderPage() {
   else if (p === "patterns") renderPatterns();
   else if (p === "service") renderService();
   else if (p === "engagement") renderEngagement();
+  else if (p === "actions") renderActions();
   else if (p === "findings") renderFindings();
   else if (p === "health") renderHealth();
-  $("#filters").style.display = ["findings", "health", "help"].includes(p) ? "none" : "";
+  $("#filters").style.display = ["findings", "health", "help", "actions"].includes(p) ? "none" : "";
 }
 
 function goto(page) {
@@ -839,11 +921,11 @@ function initTheme() {
 async function init() {
   initTheme();
   try {
-    const [manifest, opts, metrics, findings, validation] = await Promise.all([
+    const [manifest, opts, metrics, findings, validation, worklists] = await Promise.all([
       api("/runs/latest"), api("/runs/latest/explore/options"), api("/runs/latest/metrics"), api("/runs/latest/findings?status=all"),
-      api("/runs/latest/validation"),
+      api("/runs/latest/validation"), api("/runs/latest/worklists").catch(() => null),
     ]);
-    Object.assign(state, { manifest, opts, findings, validation, metrics: Object.fromEntries(metrics.map((m) => [m.id, m])) });
+    Object.assign(state, { manifest, opts, findings, validation, worklists, metrics: Object.fromEntries(metrics.map((m) => [m.id, m])) });
   } catch (e) {
     $("main").replaceChildren(h("div", { class: "card" }, h("h2", {}, "No data yet"),
       h("p", { class: "sub" }, "The pipeline hasn't produced a run yet, or the dashboard can't reach it."), h("p", { class: "muted" }, String(e))));
@@ -878,12 +960,15 @@ async function init() {
 
   $("#tab-service").hidden = !state.opts.has_salesforce;
   $("#tab-engagement").hidden = !state.opts.has_forms;
+  document.querySelector('[data-page="segments"]').hidden = !state.opts.has_segments;
+  document.querySelector('[data-page="actions"]').hidden = !(state.worklists && state.worklists.lists && state.worklists.lists.length);
   document.querySelector('[data-page="campaigns"]').hidden = state.opts.has_campaigns === false;
   document.querySelector('[data-page="industries"]').hidden = state.opts.has_industry === false;
   const goal = state.opts.converted_label;
   if (goal) {
     TILES.find((t) => t.key === "converted").label = `Reached ${goal}`;
     BREAKDOWNS.sources.cols.find((c) => c.m === "converted_rate").label = `Reached ${goal}`;
+    BREAKDOWNS.segments.cols.find((c) => c.m === "converted_rate").label = `Reached ${goal}`;
     BREAKDOWNS.sources.cols.find((c) => c.m === "converted_rate").tested = `share reaching ${goal}`;
     $("#eng-title").textContent = `Who reaches ${goal}?`;
   }

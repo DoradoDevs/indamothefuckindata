@@ -217,3 +217,18 @@ dl.defs dd { margin: 0; color: var(--ink-2); }
 
 #data-notes summary { cursor: pointer; font-weight: 600; }
 #data-notes ul { margin: 8px 0 0; padding-left: 20px; }
+
+.action-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; margin-bottom: 16px; }
+.action-card { text-align: left; background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius);
+  padding: 12px 14px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; }
+.action-card .n { font-size: 24px; font-weight: 600; }
+.action-card .t { font-size: 13px; color: var(--ink-2); }
+.action-card.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.action-search { background: var(--surface); border: 1px solid var(--border); border-radius: 8px; padding: 6px 10px; min-width: 220px; }
+.action-table td { text-align: left; white-space: normal; vertical-align: top; }
+.action-table th { text-align: left; }
+.action-table a { color: var(--accent); }
+
+main:has(#page-actions.active) { max-width: 1600px; }
+.action-table td.nw { white-space: nowrap; }
+.action-table td { font-size: 13px; }

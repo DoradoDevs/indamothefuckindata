@@ -31,6 +31,17 @@ class Config:
         x.strip() for x in os.environ.get("CONVERTED_STAGES", "customer").split(",") if x.strip()))
     # Optional plain-text file describing the business context for the Claude passes.
     analysis_context: str = field(default_factory=lambda: os.environ.get("ANALYSIS_CONTEXT", ""))
+    # Keep names, emails, and deal names for internal action lists (never sent to Claude).
+    include_contact_details: bool = field(default_factory=lambda: os.environ.get(
+        "INCLUDE_CONTACT_DETAILS", "false").lower() in ("1", "true", "yes"))
+    # Email domains of the organization's own staff; those contacts are left out of the analysis.
+    internal_domains: frozenset[str] = field(default_factory=lambda: frozenset(
+        x.strip().lower() for x in os.environ.get("INTERNAL_DOMAINS", "").split(",") if x.strip()))
+    # HubSpot portal ID, for links to records in the action lists.
+    hubspot_portal_id: str = field(default_factory=lambda: os.environ.get("HUBSPOT_PORTAL_ID", ""))
+    # Company types treated as key accounts in the action lists.
+    key_segments: tuple[str, ...] = field(default_factory=lambda: tuple(
+        x.strip() for x in os.environ.get("KEY_SEGMENTS", "Member,Customer").split(",") if x.strip()))
     # HubSpot record IDs to drop (e.g. the sample contacts HubSpot creates in new accounts).
     exclude_contact_ids: frozenset[str] = field(default_factory=lambda: frozenset(
         x.strip() for x in os.environ.get("EXCLUDE_CONTACT_IDS", "").split(",") if x.strip()))

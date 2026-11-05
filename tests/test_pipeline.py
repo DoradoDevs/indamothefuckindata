@@ -369,3 +369,57 @@ def test_small_sample_rule_targets_estimates_not_totals():
     assert not check_finding(rate, mets, 20, 0.01).passed                    # estimate on n=5 needs a caveat
     hedged = _f("Social converts at 20%, from just 5 contacts.", [(0.2, "source.S.converted_rate")])
     assert check_finding(hedged, mets, 20, 0.01).passed                      # caveat in the claim counts
+
+
+def test_worklists_segments_and_internal_staff(tmp_path):
+    from pipeline import worklists
+
+    def contact(i, **p):
+        base = {"createdate": "2026-03-01T00:00:00Z", "lifecyclestage": "lead", "hs_analytics_source": "OFFLINE"}
+        return {"id": str(i), "properties": base | p}
+
+    raw = {
+        "contacts": [
+            contact(1, firstname="Pat", lastname="Example", email="pat@member.example", hs_analytics_source="ORGANIC_SEARCH",
+                    num_conversion_events="1", recent_conversion_event_name="Contact - Site: #gform_4",
+                    recent_conversion_date="2026-10-01T00:00:00Z", num_notes="0"),
+            contact(2, firstname="Sam", lastname="Clicker", email="sam@member.example", hs_email_delivered="5",
+                    hs_email_open="3", hs_email_click="1", hs_email_last_click_date="2026-09-01T00:00:00Z"),
+            contact(3, firstname="Staff", lastname="Person", email="me@ourco.example", lifecyclestage="customer"),
+            contact(4, firstname="Lee", lastname="Lapsed", email="lee@cust.example", lifecyclestage="inactive"),
+            contact(5, firstname="Test", lastname="Test", email="info@cust.example"),
+        ],
+        "companies": [{"id": "10", "properties": {"name": "Member Co", "domain": "member.example", "type": "Member"}},
+                      {"id": "20", "properties": {"name": "Cust Co", "domain": "cust.example", "type": "Customer"}}],
+        "deals": [{"id": "d1", "properties": {"dealname": "Gold - Lanyards", "amount": "7500", "hs_is_closed_won": "true",
+                                              "hs_is_closed": "true", "sponsorship_tier": "Gold"},
+                   "associations": {"contacts": ["2"], "companies": ["10"]}}],
+        "owners": [{"id": "7", "name": "Owner One"}],
+        "lifecycle_labels": {"lead": "Prospect", "customer": "Active", "inactive": "Inactive"},
+    }
+    con = build_db(raw, tmp_path / "w.sqlite", include_details=True, internal_domains=frozenset({"ourco.example"}))
+    assert con.execute("SELECT COUNT(*) FROM contacts").fetchone()[0] == 4             # staff dropped
+    assert con.execute("SELECT segment FROM contacts WHERE contact_id='1'").fetchone()[0] == "Member"  # by domain
+    m = {x.id: x for x in compute(con, frozenset({"customer", "inactive"}))}
+    assert m["quality.internal_contacts_excluded"].value == 1
+    assert m["overview.emailed_contacts"].value == 1 and m["overview.click_rate_emailed"].value == 1.0
+    assert m["segment.Member.contacts"].value == 2
+    assert m["followup.inquiries"].value == 1 and m["followup.worked_rate"].value == 0.0
+
+    wl = {x["id"]: x for x in worklists.build(con, frozenset({"customer", "inactive"}), "123",
+                                              key_segments=("Member", "Customer"))["lists"]}
+    assert [r["name"] for r in wl["inquiries"]["rows"]] == ["Pat Example"]
+    assert wl["inquiries"]["rows"][0]["form"] == "Contact"
+    assert wl["inquiries"]["rows"][0]["link"] == "https://app.hubspot.com/contacts/123/record/0-1/1"
+    assert [r["name"] for r in wl["warm"]["rows"]] == ["Sam Clicker"]
+    assert wl["renewals"]["rows"][0]["company"] == "Member Co" and wl["renewals"]["rows"][0]["value"] == 7500.0
+    assert [r["name"] for r in wl["lapsed"]["rows"]] == ["Lee Lapsed"]
+    assert {r["name"] for r in wl["not_emailed"]["rows"]} == {"Pat Example", "Lee Lapsed", "Test Test"}
+    assert "Test or sample record" in wl["cleanup"]["rows"][0]["issue"]
+
+
+def test_worklists_without_details_have_counts_only(tmp_path):
+    from pipeline import worklists
+    con = build_db(TINY, tmp_path / "w.sqlite")
+    out = worklists.build(con, frozenset({"customer"}))
+    assert out["has_details"] is False and all(not lst["rows"] for lst in out["lists"])

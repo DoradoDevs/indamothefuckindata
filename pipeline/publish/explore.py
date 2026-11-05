@@ -27,6 +27,7 @@ GROUP_EXPR = {
     "source": "COALESCE(c.source, 'UNKNOWN')",
     "industry": "COALESCE(co.industry, 'Unknown')",
     "pipeline": "COALESCE(d.pipeline, 'none')",  # deal measures only
+    "segment": "COALESCE(c.segment, 'Unknown')",
 }
 
 
@@ -61,6 +62,9 @@ def options(warehouse: Path, converted: frozenset[str] = frozenset({"customer"})
             "has_forms": con.execute("SELECT COUNT(*) FROM contacts WHERE first_form IS NOT NULL").fetchone()[0] > 0,
             "has_deals": con.execute("SELECT COUNT(*) FROM deals").fetchone()[0] > 0,
             "converted_label": " or ".join(sorted(labels.get(s, s) for s in converted)) or "converted",
+            "segments": [r[0] for r in con.execute(
+                "SELECT COALESCE(segment,'Unknown'), COUNT(*) FROM contacts GROUP BY 1 ORDER BY 2 DESC")],
+            "has_segments": con.execute("SELECT COUNT(*) FROM contacts WHERE segment IS NOT NULL").fetchone()[0] > 0,
             "lifecycle_labels": labels}
 
 
@@ -85,10 +89,11 @@ def previous_window(start: str, end: str) -> tuple[str, str]:
 def activity(warehouse: Path, start: str, end: str, converted: frozenset[str] = frozenset({"customer"})) -> dict:
     con = _open(warehouse)
     ph = ",".join("?" * len(converted)) or "''"
-    conv, opened, clicked = con.execute(
-        f"SELECT COALESCE(SUM(COALESCE(lifecycle_stage, '') IN ({ph})),0), COALESCE(SUM(email_opened),0), "
-        f"COALESCE(SUM(email_clicked),0) FROM contacts WHERE created_month BETWEEN ? AND ?",
-        (*converted, start, end)).fetchone()
+    conv, emailed, clicked, inq, worked = con.execute(
+        f"SELECT COALESCE(SUM(COALESCE(lifecycle_stage, '') IN ({ph})),0), COALESCE(SUM(email_delivered > 0),0), "
+        f"COALESCE(SUM(email_delivered > 0 AND email_clicked = 1),0), COALESCE(SUM(form_submitted),0), "
+        f"COALESCE(SUM(form_submitted = 1 AND sales_activities > 0),0) "
+        f"FROM contacts WHERE created_month BETWEEN ? AND ?", (*converted, start, end)).fetchone()
     q = lambda sql: con.execute(sql, (start, end)).fetchone()  # noqa: E731
     contacts = q("SELECT COUNT(*) FROM contacts WHERE created_month BETWEEN ? AND ?")[0]
     deals = q("SELECT COUNT(*) FROM deals WHERE substr(created_at,1,7) BETWEEN ? AND ?")[0]
@@ -100,7 +105,9 @@ def activity(warehouse: Path, start: str, end: str, converted: frozenset[str] = 
         "new_contacts": contacts, "deals_created": deals, "deals_won": won, "deals_closed": closed,
         "won_value": float(value), "win_rate": (won / closed) if closed else None, "sessions": sessions,
         "converted": conv, "converted_rate": (conv / contacts) if contacts else None,
-        "email_click_rate": (clicked / contacts) if contacts else None,
+        "emailed_rate": (emailed / contacts) if contacts else None,
+        "email_click_rate": (clicked / emailed) if emailed else None,
+        "inquiries": inq, "followup_rate": (worked / inq) if inq else None,
     }
 
 
