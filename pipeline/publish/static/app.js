@@ -650,6 +650,15 @@ function renderHealth() {
       h("div", { class: `delta ${ok ? "good" : "bad"}` }, ok ? "✓ No issue" : "⚠ Needs attention"),
       h("p", { class: "muted", style: "margin-top:6px" }, hint));
   }));
+  const checks = ((state.validation || {}).checks || []).filter((c) => c.level !== "info");
+  const ICON = { error: "✕", warning: "⚠" };
+  $("#health-checks").replaceChildren(
+    h("h3", {}, "Checks on the latest data pull"),
+    h("p", { class: "muted", style: "margin:4px 0 10px" }, checks.length
+      ? "Things to fix in HubSpot (or in the pipeline) so the numbers are complete."
+      : "✓ No problems found in the latest pull."),
+    ...(checks.length ? [h("ul", { class: "checks" }, ...checks.map((c) =>
+      h("li", { class: c.level }, h("span", { class: "ic", "aria-label": c.level }, ICON[c.level] || ""), c.message)))] : []));
   const man = state.manifest;
   const counts = Object.entries(man.record_counts || {}).map(([k, v]) => `${v.toLocaleString("en-US")} ${k.replace(/_/g, " ")}`).join(" · ");
   $("#run-info").replaceChildren(h("h3", {}, "About this data"),
@@ -700,10 +709,11 @@ function initTheme() {
 async function init() {
   initTheme();
   try {
-    const [manifest, opts, metrics, findings] = await Promise.all([
+    const [manifest, opts, metrics, findings, validation] = await Promise.all([
       api("/runs/latest"), api("/runs/latest/explore/options"), api("/runs/latest/metrics"), api("/runs/latest/findings?status=all"),
+      api("/runs/latest/validation"),
     ]);
-    Object.assign(state, { manifest, opts, findings, metrics: Object.fromEntries(metrics.map((m) => [m.id, m])) });
+    Object.assign(state, { manifest, opts, findings, validation, metrics: Object.fromEntries(metrics.map((m) => [m.id, m])) });
   } catch (e) {
     $("main").replaceChildren(h("div", { class: "card" }, h("h2", {}, "No data yet"),
       h("p", { class: "sub" }, "The pipeline hasn't produced a run yet, or the dashboard can't reach it."), h("p", { class: "muted" }, String(e))));

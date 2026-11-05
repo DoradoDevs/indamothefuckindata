@@ -87,6 +87,11 @@ def get_findings(run_id: str, status: str = Query("published", pattern="^(publis
     return {"summary": data.get("summary"), "findings": findings}
 
 
+@app.get("/runs/{run_id}/validation", dependencies=[Depends(auth)])
+def get_validation(run_id: str):
+    return _load(_run_dir(run_id) / "validation.json") or {"status": "unknown", "checks": []}
+
+
 # --- Dashboard queries ------------------------------------------------------
 
 _MONTH = "^\\d{4}-\\d{2}$"

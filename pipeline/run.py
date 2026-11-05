@@ -30,6 +30,7 @@ from pipeline.config import Config
 from pipeline.metrics.compute import compute
 from pipeline.transform import agent_pack
 from pipeline.transform.normalize import build_db
+from pipeline.validate import validate
 from pipeline.verify.checks import check_all
 
 log = logging.getLogger("pipeline")
@@ -56,7 +57,7 @@ def extract(source: str, cfg: Config) -> dict:
         if not cfg.hubspot_token:
             sys.exit("HUBSPOT_TOKEN is not set")
         from pipeline.extract.hubspot import pull
-        return pull(cfg.hubspot_token)
+        return pull(cfg.hubspot_token, cfg.hash_salt)
     sys.exit(f"unknown source: {source}")
 
 
@@ -107,6 +108,7 @@ def main(argv: list[str] | None = None) -> Path:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--source", choices=["fixtures", "hubspot"], default="fixtures")
     ap.add_argument("--skip-claude", action="store_true", help="Compute metrics only")
+    ap.add_argument("--force", action="store_true", help="Run analysis even if validation finds errors")
     args = ap.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
     cfg = Config()
@@ -127,6 +129,14 @@ def main(argv: list[str] | None = None) -> Path:
     log.info("organize")
     con = build_db(raw, run_dir / "warehouse.sqlite", cfg.exclude_contact_ids)
 
+    log.info("validate")
+    report = validate(con, raw)
+    _write(run_dir / "validation.json", report)
+    manifest["validation"] = report["status"]
+    for c in report["checks"]:
+        if c["level"] != "info":
+            log.warning("validation %s: %s", c["level"], c["message"])
+
     log.info("metrics")
     metrics = compute(con)
     _write(run_dir / "metrics.json", agent_pack.metrics_json(metrics))
@@ -136,6 +146,9 @@ def main(argv: list[str] | None = None) -> Path:
 
     if args.skip_claude:
         manifest["analysis"] = "skipped (--skip-claude)"
+    elif report["status"] == "error" and not args.force:
+        manifest["analysis"] = "skipped (validation errors; fix them or rerun with --force)"
+        log.error(manifest["analysis"])
     elif not claude_runner.available(cfg):
         manifest["analysis"] = f"skipped ('{cfg.claude_bin}' not on PATH)"
         log.warning(manifest["analysis"])

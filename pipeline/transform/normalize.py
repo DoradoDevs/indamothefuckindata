@@ -13,10 +13,11 @@ from pathlib import Path
 SCHEMA = """
 CREATE TABLE contacts (
   contact_id TEXT PRIMARY KEY, created_at TEXT, created_month TEXT,
-  lifecycle_stage TEXT, source TEXT, campaign_id TEXT, company_id TEXT
+  lifecycle_stage TEXT, source TEXT, campaign_id TEXT, company_id TEXT,
+  email_hash TEXT  -- keyed one-way hash, for Salesforce matching only; never displayed
 );
 CREATE TABLE companies (
-  company_id TEXT PRIMARY KEY, name TEXT, industry TEXT, state TEXT, created_at TEXT
+  company_id TEXT PRIMARY KEY, name TEXT, domain TEXT, industry TEXT, state TEXT, created_at TEXT
 );
 CREATE TABLE deals (
   deal_id TEXT PRIMARY KEY, amount REAL, stage TEXT, pipeline TEXT,
@@ -69,6 +70,16 @@ def _first(assoc: dict | None, key: str) -> str | None:
     return str(ids[0]) if ids else None
 
 
+def _domain(v: str | None) -> str | None:
+    if not v:
+        return None
+    d = v.strip().lower()
+    for prefix in ("https://", "http://"):
+        d = d.removeprefix(prefix)
+    d = d.removeprefix("www.").split("/")[0]
+    return d or None
+
+
 def _bool(v) -> bool | None:
     if v in (None, ""):
         return None
@@ -83,15 +94,36 @@ def build_db(raw: dict[str, list[dict]], db_path: Path,
     con = sqlite3.connect(db_path)
     con.executescript(SCHEMA)
 
-    con.executemany("INSERT INTO contacts VALUES (?,?,?,?,?,?,?)", [
-        (c["id"], (ca := _dt(p.get("createdate"))), _month(ca), p.get("lifecyclestage"),
-         p.get("hs_analytics_source"), p.get("hs_analytics_first_touch_converting_campaign"),
-         _first(c.get("associations"), "companies"))
-        for c in raw.get("contacts", []) for p in [c.get("properties", {})]
-        if str(c["id"]) not in exclude_contact_ids
-    ])
-    con.executemany("INSERT INTO companies VALUES (?,?,?,?,?)", [
-        (c["id"], p.get("name"), p.get("industry"), p.get("state"), _dt(p.get("createdate")))
+    # VERIFY: HubSpot's first-touch campaign property may hold the campaign's ID or its
+    # name depending on account setup; resolve either to the campaign ID.
+    campaign_by_name = {(c.get("properties") or {}).get("hs_name", "").strip().lower(): str(c["id"])
+                        for c in raw.get("campaigns", []) if (c.get("properties") or {}).get("hs_name")}
+    campaign_ids = {str(c["id"]) for c in raw.get("campaigns", [])}
+
+    def resolve_campaign(v):
+        if not v:
+            return None
+        v = str(v)
+        if v in campaign_ids or not campaign_by_name:
+            return v
+        return campaign_by_name.get(v.strip().lower(), v)
+
+    seen: set[str] = set()
+    contact_rows = []
+    for c in raw.get("contacts", []):
+        cid = str(c["id"])
+        if cid in exclude_contact_ids or cid in seen:
+            continue
+        seen.add(cid)
+        p = c.get("properties", {})
+        ca = _dt(p.get("createdate"))
+        contact_rows.append((cid, ca, _month(ca), p.get("lifecyclestage"), p.get("hs_analytics_source"),
+                             resolve_campaign(p.get("hs_analytics_first_touch_converting_campaign")),
+                             _first(c.get("associations"), "companies"), p.get("email_hash")))
+    con.executemany("INSERT INTO contacts VALUES (?,?,?,?,?,?,?,?)", contact_rows)
+    con.executemany("INSERT OR IGNORE INTO companies VALUES (?,?,?,?,?,?)", [
+        (str(c["id"]), p.get("name"), _domain(p.get("domain")), p.get("industry"), p.get("state"),
+         _dt(p.get("createdate")))
         for c in raw.get("companies", []) for p in [c.get("properties", {})]
     ])
     rows = []
@@ -109,10 +141,10 @@ def build_db(raw: dict[str, list[dict]], db_path: Path,
         amount = _num(p.get("amount_in_home_currency"))
         if amount is None:
             amount = _num(p.get("amount"))
-        rows.append((d["id"], amount, stage, p.get("pipeline"), _dt(p.get("createdate")),
+        rows.append((str(d["id"]), amount, stage, p.get("pipeline"), _dt(p.get("createdate")),
                      closed_at, _month(closed_at) if is_closed else None, int(is_closed), int(is_won),
                      _first(d.get("associations"), "contacts"), _first(d.get("associations"), "companies")))
-    con.executemany("INSERT INTO deals VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+    con.executemany("INSERT OR IGNORE INTO deals VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
     con.executemany("INSERT INTO campaigns VALUES (?,?,?,?,?)", [
         (c["id"], p.get("hs_name"), p.get("channel"), p.get("hs_start_date"), p.get("hs_end_date"))
         for c in raw.get("campaigns", []) for p in [c.get("properties", {})]

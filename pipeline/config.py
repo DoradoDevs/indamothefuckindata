@@ -18,6 +18,9 @@ class Config:
     # Relative tolerance when matching a quoted number to a metric (covers rounding).
     match_tolerance: float = field(default_factory=lambda: float(os.environ.get("MATCH_TOLERANCE", "0.01")))
     api_token: str | None = field(default_factory=lambda: os.environ.get("API_TOKEN"))
+    # Secret key for one-way hashing of contact emails (HubSpot <-> Salesforce matching).
+    # Must be identical for both sources and kept in the secret store, never in the repo.
+    hash_salt: str = field(default_factory=lambda: os.environ.get("HASH_SALT", ""))
     # HubSpot record IDs to drop (e.g. the sample contacts HubSpot creates in new accounts).
     exclude_contact_ids: frozenset[str] = field(default_factory=lambda: frozenset(
         x.strip() for x in os.environ.get("EXCLUDE_CONTACT_IDS", "").split(",") if x.strip()))

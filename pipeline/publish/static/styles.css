@@ -190,6 +190,12 @@ td.stands { text-align: left; white-space: normal; min-width: 180px; }
 .linkbtn { background: none; border: 0; color: var(--accent); cursor: pointer; padding: 0; font-size: 13px; }
 .empty { color: var(--muted); padding: 24px 0; text-align: center; }
 
+ul.checks { list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+ul.checks li { display: flex; gap: 10px; align-items: baseline; font-size: 14px; }
+ul.checks .ic { font-weight: 700; width: 16px; flex: none; }
+ul.checks li.error .ic { color: var(--bad); }
+ul.checks li.warning .ic { color: var(--warn-ink); }
+
 /* Correlation */
 .lags { display: grid; gap: 8px; }
 .lag-row { display: grid; grid-template-columns: 240px 1fr 170px; gap: 12px; align-items: center; font-size: 14px; }
