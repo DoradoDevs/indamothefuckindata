@@ -30,13 +30,15 @@ log = logging.getLogger("pipeline.hubspot")
 
 PROPERTIES = {
     "contacts": ["createdate", "lastmodifieddate", "lifecyclestage", "hs_analytics_source",
-                 "hs_analytics_first_touch_converting_campaign", "email"],
+                 "hs_analytics_first_touch_converting_campaign", "email",
+                 "hs_email_last_open_date", "hs_email_last_click_date", "num_conversion_events",
+                 "first_conversion_event_name", "hs_analytics_num_visits"],
     "companies": ["name", "domain", "industry", "state", "createdate"],
     # hs_is_closed_won / hs_is_closed are used instead of stage IDs: pipelines migrated
     # from Salesforce use GUID stage IDs, not "closedwon". Deal names aren't pulled;
     # they often contain customer names and aren't needed for analysis.
     "deals": ["amount", "amount_in_home_currency", "dealstage", "pipeline", "createdate", "closedate",
-              "hs_is_closed_won", "hs_is_closed"],
+              "hs_is_closed_won", "hs_is_closed", "dealtype"],
 }
 ASSOCIATIONS = {"contacts": ["companies"], "companies": [], "deals": ["contacts", "companies"]}
 SCOPES_HINT = {
@@ -135,6 +137,11 @@ class HubSpotClient:
                             for st in pl.get("stages", [])]}
                 for pl in page.get("results", [])]
 
+    def lifecycle_labels(self) -> dict[str, str]:
+        """Display labels for lifecycle stages (accounts often rename or add stages)."""
+        prop = self._request("GET", "/crm/v3/properties/contacts/lifecyclestage")
+        return {o["value"]: o.get("label", o["value"]) for o in prop.get("options", [])}
+
     def campaigns(self) -> Iterator[dict]:
         """VERIFY: Marketing campaigns API v3; needs Marketing Hub + campaigns read scope."""
         for c in self._paginate("/marketing/v3/campaigns",
@@ -198,6 +205,10 @@ def pull(token: str, hash_salt: str = "", fetch: Fetch | None = None,
             out[name] = []
             hint = f" (needs '{SCOPES_HINT[name]}' scope or a higher HubSpot tier)" if e.code in (403, 404) else ""
             warnings.append(f"{name}: not available, HTTP {e.code}{hint}")
+    try:
+        out["lifecycle_labels"] = client.lifecycle_labels()
+    except urllib.error.HTTPError as e:
+        warnings.append(f"lifecycle stage labels: not available, HTTP {e.code}")
     # Website traffic: HubSpot's traffic analytics API is legacy and tier-dependent.
     # Decide on the source (HubSpot vs. Google Analytics) before wiring it.
     out["web_traffic"] = []

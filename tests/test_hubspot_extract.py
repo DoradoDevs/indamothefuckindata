@@ -49,6 +49,8 @@ def _routes():
         "/crm/v3/pipelines/deals": [{"results": [{"id": "default", "label": "Sponsorship", "stages": []}]}],
         "/marketing/v3/campaigns": [{"results": []}],
         "/marketing/v3/emails": [{"results": []}],
+        "/crm/v3/properties/contacts/lifecyclestage": [{"options": [{"value": "lead", "label": "Prospect"},
+                                                                    {"value": "customer", "label": "Active"}]}],
     }
 
 
@@ -64,6 +66,7 @@ def test_pull_paginates_retries_and_hashes_email():
     assert c1["associations"]["companies"] == ["100", "200"]                    # primary first, deduped
     assert len(out["deals"]) == 1                                               # survived a 429
     assert out["pipelines"][0]["label"] == "Sponsorship"
+    assert out["lifecycle_labels"] == {"lead": "Prospect", "customer": "Active"}
     assert out["_warnings"] == []
     # Never asks for names, phones, or deal names
     requested = {p for path, q in fake.calls for p in q.get("properties", [])}

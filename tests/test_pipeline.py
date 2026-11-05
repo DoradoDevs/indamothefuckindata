@@ -308,3 +308,64 @@ def test_verifier_accepts_real_claude_phrasing():
     # ...but an invented multiple is still rejected
     bad = _f("Webinar earns 8.2x more per contact.", [(10267.47, "campaign.w.revenue_per_contact")])
     assert not check_finding(bad, mets, 20, 0.01).passed
+
+
+def test_conversion_engagement_and_form_metrics(tmp_path):
+    raw = {
+        "contacts": [
+            {"id": str(i), "properties": {"createdate": "2026-01-05T00:00:00Z", "hs_analytics_source": src,
+                                          "lifecyclestage": stage, "_email_opened": op, "_email_clicked": cl,
+                                          "num_conversion_events": fm, "first_conversion_event_name": form}}
+            for i, (src, stage, op, cl, fm, form) in enumerate([
+                ("DIRECT_TRAFFIC", "customer", True, True, 1, "Sponsorship Application - Site: #gform_6"),
+                ("DIRECT_TRAFFIC", "inactive", True, False, 1, "Sponsorship Application - Site: #gform_6"),
+                ("DIRECT_TRAFFIC", "lead", False, False, 1, "Contact - Site: #gform_4"),
+                ("OFFLINE", "lead", True, False, 0, None),
+                ("OFFLINE", "lead", False, False, 0, None),
+                ("OFFLINE", None, False, False, 0, None),
+            ])],
+        "lifecycle_labels": {"customer": "Active", "inactive": "Inactive", "lead": "Prospect"},
+    }
+    con = build_db(raw, tmp_path / "w.sqlite")
+    m = {x.id: x for x in compute(con, frozenset({"customer", "inactive"}))}
+    assert m["overview.converted_contacts"].value == 2
+    assert m["overview.converted_rate"].value == pytest.approx(2 / 6, abs=1e-4)
+    assert "Active or Inactive" in m["overview.converted_rate"].description
+    assert m["source.DIRECT_TRAFFIC.converted_rate"].value == pytest.approx(2 / 3, abs=1e-4)
+    assert m["source.OFFLINE.converted_rate"].value == 0.0                      # NULL stage counts as not converted
+    assert m["engagement.converted.email_open_rate"].value == 1.0
+    assert m["engagement.not_converted.email_open_rate"].value == 0.25
+    assert m["form.sponsorship-application.converted_rate"].value == 1.0       # form label cleaned and slugged
+    assert m["form.contact.contacts"].value == 1
+    assert "test.form.contact.converted_rate" in m
+    assert m["funnel.stage.lead.contacts"].description.endswith("'Prospect'")
+    assert m["quality.contacts_never_engaged_rate"].value == pytest.approx(2 / 6, abs=1e-4)
+
+
+def test_static_export_is_self_contained(tmp_path, monkeypatch):
+    from pipeline import run
+    from pipeline.config import Config
+    from pipeline.publish import api, export_static
+
+    monkeypatch.setenv("DATA_DIR", str(tmp_path))
+    run.main(["--skip-claude"])
+    monkeypatch.setattr(api, "cfg", Config(data_dir=tmp_path, api_token=None))
+    out = tmp_path / "snap.html"
+    export_static.main(["--out", str(out)])
+    html = out.read_text()
+    assert "window.__STATIC__" in html and 'src="app.js"' not in html and 'href="styles.css"' not in html
+    assert "Choose months" not in html and "Internal and confidential" in html
+    assert "/runs/latest/explore/summary?start=" in html
+
+
+def test_small_sample_rule_targets_estimates_not_totals():
+    mets = {
+        "deal_group.Premier.revenue_won": Metric("deal_group.Premier.revenue_won", 65000.0, "usd", 3, ""),
+        "source.S.converted_rate": Metric("source.S.converted_rate", 0.2, "ratio", 5, "", 0.0362, 0.6245),
+    }
+    total = _f("Premier brought in $65,000.", [(65000, "deal_group.Premier.revenue_won")])
+    assert check_finding(total, mets, 20, 0.01).passed                       # exact total: no caveat needed
+    rate = _f("Social converts at 20%.", [(0.2, "source.S.converted_rate")])
+    assert not check_finding(rate, mets, 20, 0.01).passed                    # estimate on n=5 needs a caveat
+    hedged = _f("Social converts at 20%, from just 5 contacts.", [(0.2, "source.S.converted_rate")])
+    assert check_finding(hedged, mets, 20, 0.01).passed                      # caveat in the claim counts

@@ -36,8 +36,12 @@ def _open(warehouse: Path) -> sqlite3.Connection:
     return sqlite3.connect(f"file:{warehouse}?mode=ro&immutable=1", uri=True)
 
 
-def options(warehouse: Path) -> dict:
+def options(warehouse: Path, converted: frozenset[str] = frozenset({"customer"})) -> dict:
     con = _open(warehouse)
+    try:
+        labels = dict(con.execute("SELECT stage, label FROM lifecycle_labels"))
+    except sqlite3.OperationalError:
+        labels = {}
     months = [r[0] for r in con.execute(
         """SELECT m FROM (SELECT created_month m FROM contacts UNION SELECT closed_month FROM deals
                           UNION SELECT month FROM web_traffic) WHERE m IS NOT NULL ORDER BY m""")]
@@ -51,7 +55,13 @@ def options(warehouse: Path) -> dict:
         """SELECT DISTINCT d.pipeline, p.label FROM deals d LEFT JOIN pipelines p ON p.pipeline_id = d.pipeline
            WHERE d.pipeline IS NOT NULL ORDER BY 1""")]
     return {"months": months, "campaigns": campaigns, "sources": sources, "industries": industries,
-            "pipelines": pipelines, "has_traffic": has_traffic, "has_salesforce": has_salesforce(con)}
+            "pipelines": pipelines, "has_traffic": has_traffic, "has_salesforce": has_salesforce(con),
+            "has_campaigns": con.execute("SELECT COUNT(*) FROM contacts WHERE campaign_id IS NOT NULL").fetchone()[0] > 0,
+            "has_industry": con.execute("SELECT COUNT(*) FROM companies WHERE industry IS NOT NULL").fetchone()[0] > 0,
+            "has_forms": con.execute("SELECT COUNT(*) FROM contacts WHERE first_form IS NOT NULL").fetchone()[0] > 0,
+            "has_deals": con.execute("SELECT COUNT(*) FROM deals").fetchone()[0] > 0,
+            "converted_label": " or ".join(sorted(labels.get(s, s) for s in converted)) or "converted",
+            "lifecycle_labels": labels}
 
 
 def service_metrics(warehouse: Path, start: str, end: str) -> list[dict]:
@@ -72,8 +82,13 @@ def previous_window(start: str, end: str) -> tuple[str, str]:
     return _shift(start, -length), _shift(start, -1)
 
 
-def activity(warehouse: Path, start: str, end: str) -> dict:
+def activity(warehouse: Path, start: str, end: str, converted: frozenset[str] = frozenset({"customer"})) -> dict:
     con = _open(warehouse)
+    ph = ",".join("?" * len(converted)) or "''"
+    conv, opened, clicked = con.execute(
+        f"SELECT COALESCE(SUM(COALESCE(lifecycle_stage, '') IN ({ph})),0), COALESCE(SUM(email_opened),0), "
+        f"COALESCE(SUM(email_clicked),0) FROM contacts WHERE created_month BETWEEN ? AND ?",
+        (*converted, start, end)).fetchone()
     q = lambda sql: con.execute(sql, (start, end)).fetchone()  # noqa: E731
     contacts = q("SELECT COUNT(*) FROM contacts WHERE created_month BETWEEN ? AND ?")[0]
     deals = q("SELECT COUNT(*) FROM deals WHERE substr(created_at,1,7) BETWEEN ? AND ?")[0]
@@ -84,10 +99,13 @@ def activity(warehouse: Path, start: str, end: str) -> dict:
     return {
         "new_contacts": contacts, "deals_created": deals, "deals_won": won, "deals_closed": closed,
         "won_value": float(value), "win_rate": (won / closed) if closed else None, "sessions": sessions,
+        "converted": conv, "converted_rate": (conv / contacts) if contacts else None,
+        "email_click_rate": (clicked / contacts) if contacts else None,
     }
 
 
-def cohort_metrics(warehouse: Path, start: str, end: str, prefixes: tuple[str, ...]) -> list[dict]:
+def cohort_metrics(warehouse: Path, start: str, end: str, prefixes: tuple[str, ...],
+                   converted: frozenset[str] = frozenset({"customer"})) -> list[dict]:
     mem = sqlite3.connect(":memory:")
     src = _open(warehouse)
     src.backup(mem)
@@ -100,7 +118,7 @@ def cohort_metrics(warehouse: Path, start: str, end: str, prefixes: tuple[str, .
         DELETE FROM main.web_traffic WHERE month NOT BETWEEN '{s}' AND '{e}';
         DELETE FROM main.email_stats WHERE substr(send_date,1,7) NOT BETWEEN '{s}' AND '{e}';
     """.format(s=_month_or_fail(start), e=_month_or_fail(end)))
-    return [m.to_dict() for m in compute(mem) if m.id.startswith(prefixes)]
+    return [m.to_dict() for m in compute(mem, converted) if m.id.startswith(prefixes)]
 
 
 def _month_or_fail(m: str) -> str:

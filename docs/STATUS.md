@@ -72,6 +72,27 @@ If HubSpot CSV exports turn up before the token: `python -m pipeline.run --sourc
   Dockerfile, Azure deployment guide.
 - **39 automated tests**, lint clean.
 
+## First run on real HubSpot data (November 5, 2026)
+
+Run through the chat connector while the API token is pending: the 60 Active/Inactive and
+166 website contacts read individually (analytics fields only, IDs scrambled, no names
+stored), the ~4,200 imported prospects represented by exact monthly counts, plus all 22
+sponsorship deals. The data stayed in the session's scratch space; nothing from it is in
+this repo. The dashboard was shared as a self-contained snapshot file.
+
+Result: 9 findings, none rejected by the code check, 4 confirmed and 5 reworded by the
+reviewer. Key points: the sponsorship application form is where Active contacts come
+from; general website inquiries (Contact form) rarely reach Active, likely because
+service inquiries are tracked in Salesforce; the imported list holds most sponsorship
+dollars but converts rarely; 87% of contacts have never engaged; campaign and company
+links are missing everywhere; deal close dates were bulk-edited.
+
+What the run added to the pipeline: goal-status conversion (`CONVERTED_STAGES`), email
+and form engagement, first-form analysis, lifecycle stage labels, sponsorship tiers
+(deal groups), a business-context file for Claude (`ANALYSIS_CONTEXT`), `--source raw`,
+a static snapshot export (`python -m pipeline.publish.export_static`), and dashboard
+fixes (no comparisons against partly covered periods, data notes on the Overview).
+
 ## Latest sample run (with Claude)
 
 9 findings. The code check rejected none (every number traced to a metric). The reviewer

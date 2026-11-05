@@ -22,6 +22,7 @@
     <button role="tab" data-page="sources">Lead sources</button>
     <button role="tab" data-page="industries">Industries</button>
     <button role="tab" data-page="service" id="tab-service" hidden>Service deals</button>
+    <button role="tab" data-page="engagement" id="tab-engagement" hidden>Forms &amp; engagement</button>
     <button role="tab" data-page="patterns">What moves together</button>
     <button role="tab" data-page="findings">All findings</button>
     <button role="tab" data-page="health">Data health</button>
@@ -48,6 +49,7 @@
   <main>
     <!-- OVERVIEW -->
     <section class="page active" id="page-overview">
+      <div class="note" id="data-notes" hidden></div>
       <div class="tiles" id="tiles"></div>
       <div class="note" id="recent-note" hidden>Recent months look lower for won deals because many deals that started then are still open.</div>
 
@@ -87,6 +89,18 @@
     <section class="page" id="page-campaigns"></section>
     <section class="page" id="page-sources"></section>
     <section class="page" id="page-industries"></section>
+
+    <!-- FORMS & ENGAGEMENT -->
+    <section class="page" id="page-engagement">
+      <div class="page-intro">
+        <h2 id="eng-title">Who reaches goal status?</h2>
+        <p class="sub">How contacts who reached the goal status behave compared with everyone else, and which website form people started with. These show what goes together, not what causes what. Counts people who came in during the selected period.</p>
+      </div>
+      <div class="card"><div class="card-head"><h3>Engagement compared</h3></div><div class="table-wrap" id="eng-compare"></div></div>
+      <div class="card"><div class="card-head"><div><h3>Share reaching goal status, by first website form</h3>
+        <p class="muted">The number in brackets is how many contacts started with that form.</p></div></div>
+        <div class="chart" id="eng-forms-bars"></div></div>
+    </section>
 
     <!-- SERVICE DEALS (Salesforce matched to HubSpot) -->
     <section class="page" id="page-service">

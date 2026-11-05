@@ -161,7 +161,102 @@ def _days_to_close(con: sqlite3.Connection, key_col: str) -> dict[str, list[floa
     return out
 
 
-def compute(con: sqlite3.Connection) -> list[Metric]:
+def _slug(s: str) -> str:
+    out = "".join(ch.lower() if ch.isalnum() else "-" for ch in s)
+    while "--" in out:
+        out = out.replace("--", "-")
+    return out.strip("-") or "unknown"
+
+
+def _labels(con: sqlite3.Connection) -> dict[str, str]:
+    try:
+        return dict(con.execute("SELECT stage, label FROM lifecycle_labels"))
+    except sqlite3.OperationalError:
+        return {}
+
+
+def _conversion_and_engagement(m: _Collector, con: sqlite3.Connection, converted: frozenset[str]) -> None:
+    """Reaching the account's goal lifecycle stage, plus email and form engagement."""
+    labels = _labels(con)
+    conv_label = " or ".join(sorted(labels.get(s, s) for s in converted)) or "converted"
+    placeholders = ",".join("?" * len(converted)) or "''"
+    conv_sql = f"(COALESCE(lifecycle_stage, '') IN ({placeholders}))"
+    args = tuple(converted)
+
+    n, conv, opened, clicked, forms = con.execute(
+        f"SELECT COUNT(*), COALESCE(SUM({conv_sql}),0), COALESCE(SUM(email_opened),0), COALESCE(SUM(email_clicked),0), "
+        f"COALESCE(SUM(form_submitted),0) FROM contacts", args).fetchone()
+    if not n:
+        return
+    m.add("overview.converted_contacts", conv, "count", n, f"Contacts who reached {conv_label}")
+    m.add("overview.converted_rate", _ratio(conv, n), "ratio", n, f"Share of contacts who reached {conv_label}",
+          ci=stats.wilson(conv, n))
+    m.add("overview.email_open_rate", _ratio(opened, n), "ratio", n,
+          "Share of contacts who have ever opened a marketing email", ci=stats.wilson(opened, n))
+    m.add("overview.email_click_rate", _ratio(clicked, n), "ratio", n,
+          "Share of contacts who have ever clicked a marketing email", ci=stats.wilson(clicked, n))
+    m.add("overview.click_to_open_rate", _ratio(clicked, opened), "ratio", opened,
+          "Of contacts who opened, the share who clicked", ci=stats.wilson(clicked, opened))
+    m.add("overview.form_rate", _ratio(forms, n), "ratio", n, "Share of contacts who have submitted a website form",
+          ci=stats.wilson(forms, n))
+
+    # By lead source
+    rows = con.execute(f"""SELECT COALESCE(source,'UNKNOWN'), COUNT(*), COALESCE(SUM({conv_sql}),0),
+                                  COALESCE(SUM(email_opened),0), COALESCE(SUM(email_clicked),0),
+                                  COALESCE(SUM(form_submitted),0)
+                           FROM contacts GROUP BY 1""", args).fetchall()
+    conv_g, click_g, open_g = {}, {}, {}
+    for k, cn, cv, op, cl, fm in rows:
+        p = f"source.{k}"
+        m.add(f"{p}.converted_rate", _ratio(cv, cn), "ratio", cn, f"Share of contacts from source {k} who reached "
+              f"{conv_label}", ci=stats.wilson(cv, cn))
+        m.add(f"{p}.email_open_rate", _ratio(op, cn), "ratio", cn, f"Share of contacts from source {k} who have "
+              "opened a marketing email", ci=stats.wilson(op, cn))
+        m.add(f"{p}.email_click_rate", _ratio(cl, cn), "ratio", cn, f"Share of contacts from source {k} who have "
+              "clicked a marketing email", ci=stats.wilson(cl, cn))
+        m.add(f"{p}.form_rate", _ratio(fm, cn), "ratio", cn, f"Share of contacts from source {k} who submitted a form",
+              ci=stats.wilson(fm, cn))
+        conv_g[k], click_g[k], open_g[k] = (cv, cn), (cl, cn), (op, cn)
+    names = {k: f"source {k}" for k in conv_g}
+    _proportion_tests(m, "source", "converted_rate", f"Share reaching {conv_label}", conv_g, names)
+    _proportion_tests(m, "source", "email_click_rate", "Email click rate", click_g, names)
+    _proportion_tests(m, "source", "email_open_rate", "Email open rate", open_g, names)
+
+    # Engagement of contacts who converted vs. those who didn't (association, not cause)
+    eng = {}
+    for key, cond in (("converted", conv_sql), ("not_converted", f"NOT {conv_sql}")):
+        cn, op, cl, fm = con.execute(f"SELECT COUNT(*), COALESCE(SUM(email_opened),0), COALESCE(SUM(email_clicked),0), "
+                                     f"COALESCE(SUM(form_submitted),0) FROM contacts WHERE {cond}", args).fetchone()
+        lab = conv_label if key == "converted" else f"not {conv_label}"
+        for meas, k_, text in (("email_open_rate", op, "opened a marketing email"),
+                               ("email_click_rate", cl, "clicked a marketing email"),
+                               ("form_rate", fm, "submitted a form")):
+            m.add(f"engagement.{key}.{meas}", _ratio(k_, cn), "ratio", cn, f"Share of contacts ({lab}) who {text}",
+                  ci=stats.wilson(k_, cn))
+            eng.setdefault(meas, {})[key] = (k_, cn)
+    for meas, groups in eng.items():
+        _proportion_tests(m, "engagement", meas, meas.replace("_", " "), groups,
+                          {"converted": conv_label, "not_converted": f"not {conv_label}"})
+
+    # By the first website form a contact submitted
+    rows = con.execute(f"""SELECT first_form, COUNT(*), COALESCE(SUM({conv_sql}),0) FROM contacts
+                           WHERE first_form IS NOT NULL GROUP BY 1""", args).fetchall()
+    form_g, form_names = {}, {}
+    for form, cn, cv in rows:
+        k = _slug(form)
+        form_names[k] = f"form '{form}'"
+        m.add(f"form.{k}.contacts", cn, "count", cn, f"Contacts whose first form was '{form}'")
+        m.add(f"form.{k}.converted_rate", _ratio(cv, cn), "ratio", cn,
+              f"Share of contacts whose first form was '{form}' who reached {conv_label}", ci=stats.wilson(cv, cn))
+        form_g[k] = (cv, cn)
+    _proportion_tests(m, "form", "converted_rate", f"Share reaching {conv_label}", form_g, form_names)
+
+    never = con.execute("SELECT COUNT(*) FROM contacts WHERE email_opened = 0 AND form_submitted = 0").fetchone()[0]
+    m.add("quality.contacts_never_engaged_rate", _ratio(never, n), "ratio", n,
+          "Share of contacts who have never opened a marketing email or submitted a form")
+
+
+def compute(con: sqlite3.Connection, converted: frozenset[str] = frozenset({"customer"})) -> list[Metric]:
     m = _Collector()
 
     # --- Overview -----------------------------------------------------------
@@ -178,8 +273,11 @@ def compute(con: sqlite3.Connection) -> list[Metric]:
           "Deals per contact")
     m.add("overview.win_rate", _ratio(n_won, n_closed), "ratio", n_closed, "Won / closed deals")
 
+    labels = _labels(con)
     for stage, cnt in con.execute("SELECT COALESCE(lifecycle_stage,'unknown'), COUNT(*) FROM contacts GROUP BY 1"):
-        m.add(f"funnel.stage.{stage}.contacts", cnt, "count", n_contacts, f"Contacts in lifecycle stage '{stage}'")
+        m.add(f"funnel.stage.{stage}.contacts", cnt, "count", n_contacts,
+              f"Contacts in lifecycle stage '{labels.get(stage, stage)}'")
+    _conversion_and_engagement(m, con, converted)
 
     # --- Campaigns ----------------------------------------------------------
     names = {cid: (name, ch) for cid, name, ch in con.execute("SELECT campaign_id, name, channel FROM campaigns")}
@@ -247,6 +345,17 @@ def compute(con: sqlite3.Connection) -> list[Metric]:
         m.add(f"{pp}.win_rate", _ratio(won or 0, closed or 0), "ratio", closed or 0, f"Win rate in pipeline '{label}'",
               ci=stats.wilson(won or 0, closed or 0))
         m.add(f"{pp}.revenue_won", float(revenue), "usd", closed or 0, f"Won value in pipeline '{label}'")
+
+    # --- Deal groups (sponsorship tier / deal type), when present ------------
+    total_won_value = float(rev or 0)
+    for grp, closed, won, revenue in con.execute("""
+        SELECT deal_group, SUM(is_closed), SUM(is_won), COALESCE(SUM(CASE WHEN is_won=1 THEN amount END),0)
+        FROM deals WHERE deal_group IS NOT NULL GROUP BY 1"""):
+        g = f"deal_group.{grp}"
+        m.add(f"{g}.deals_won", won or 0, "count", closed or 0, f"Won deals in group '{grp}'")
+        m.add(f"{g}.revenue_won", float(revenue), "usd", closed or 0, f"Won value in group '{grp}'")
+        m.add(f"{g}.share_of_won_value", _ratio(float(revenue), total_won_value), "ratio", won or 0,
+              f"Share of all won deal value from group '{grp}'")
 
     # --- Industry ----------------------------------------------------------
     ind_groups = {}

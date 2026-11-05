@@ -18,15 +18,19 @@ from pipeline.analyze.schemas import Finding
 from pipeline.metrics.compute import Metric
 
 _NUM = re.compile(r"(?<![\w.])[-+]?\$?\d[\d,]*(?:\.\d+)?%?")
-_SMALL_SAMPLE_WORDS = ("sample", "small n", "n=", "few ", "limited data", "low volume", "only ")
+_SMALL_SAMPLE_WORDS = ("sample", "small n", "n=", "few ", "limited data", "low volume", "only ", "just ",
+                       "too small", "too thin", "small group", "small number")
 _CHANCE_WORDS = ("chance", "not significant", "not statistically", "noise", "uncertain", "could be random",
                  "not a reliable difference", "may not be real")
 _SIGNIF_CLAIM = re.compile(r"\b(statistically|significant(ly)?)\b", re.I)
-_GROUP_METRIC = re.compile(r"^(campaign|source|industry|pipeline|service\.campaign|service\.source)\.([^.]+)\.(\w+)$")
+_GROUP_METRIC = re.compile(
+    r"^(campaign|source|industry|pipeline|engagement|form|service\.campaign|service\.source)\.([^.]+)\.(\w+)$")
 # Measures that have a test.<dim>.<key>.<measure> metric.
 TESTED = {
     "campaign": {"contact_to_deal_rate", "win_rate", "revenue_per_contact"},
-    "source": {"contact_to_won_rate", "revenue_per_contact"},
+    "source": {"contact_to_won_rate", "revenue_per_contact", "converted_rate", "email_click_rate", "email_open_rate"},
+    "engagement": {"email_open_rate", "email_click_rate", "form_rate"},
+    "form": {"converted_rate"},
     "industry": {"win_rate"},
     "service_campaign": {"contact_to_service_win_rate", "service_value_per_contact"},
     "service_source": {"contact_to_service_win_rate", "service_value_per_contact"},
@@ -116,9 +120,17 @@ def check_finding(f: Finding, metrics: dict[str, Metric], min_sample: int, tol: 
         if not any(_close(n, b, tol, decimals) for b in backed):
             r.errors.append(f"number {n} in claim is not backed by a quoted metric")
 
-    thin = [mid for mid in f.evidence if mid in metrics and metrics[mid].n < min_sample]
+    # Small-sample caveats apply to estimates (rates, means, correlations: anything with a
+    # range or a test), not to exact totals and counts, which describe everything there is.
+    def is_estimate(mid: str) -> bool:
+        mt = metrics[mid]
+        if mid.startswith("quality.") or ".share_of_" in mid:
+            return False  # exact share of the whole data set
+        return mt.ci_low is not None or mt.p_value is not None or mt.unit in ("ratio", "correlation", "days")
+
+    thin = [mid for mid in f.evidence if mid in metrics and metrics[mid].n < min_sample and is_estimate(mid)]
     if thin:
-        caveat_text = " ".join(f.caveats).lower()
+        caveat_text = (" ".join(f.caveats) + " " + f.claim).lower()
         if not any(w in caveat_text for w in _SMALL_SAMPLE_WORDS):
             r.errors.append(f"relies on small samples (n<{min_sample}) without a caveat: {', '.join(thin)}")
         else:

@@ -25,13 +25,16 @@ def _fmt(v, unit: str) -> str:
     return f"{v:,}"
 
 
-def build(con: sqlite3.Connection, metrics: list[Metric], previous: dict[str, float] | None = None) -> str:
+def build(con: sqlite3.Connection, metrics: list[Metric], previous: dict[str, float] | None = None,
+          context: str = "", notes: list[str] | None = None) -> str:
     lo, hi = con.execute("SELECT MIN(created_month), MAX(created_month) FROM contacts").fetchone()
     campaigns = con.execute("SELECT campaign_id, name, channel, start_date FROM campaigns ORDER BY 1").fetchall()
 
     lines = [
         "# HubSpot analytics agent pack",
         "",
+        *(["## Business context", "", context.strip(), ""] if context.strip() else []),
+        *(["## Data notes (read before drawing conclusions)", "", *[f"- {n}" for n in notes], ""] if notes else []),
         f"Data window (contact created month): {lo} to {hi}.",
         "Revenue = sum of `amount` on closed-won deals. Attribution = contact's first-touch converting campaign.",
         "Deals are attributed through their first associated contact.",

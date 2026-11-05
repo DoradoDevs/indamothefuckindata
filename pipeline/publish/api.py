@@ -99,7 +99,7 @@ def get_validation(run_id: str):
 # --- Dashboard queries ------------------------------------------------------
 
 _MONTH = "^\\d{4}-\\d{2}$"
-_COHORT_PREFIXES = ("campaign.", "source.", "industry.", "test.")
+_COHORT_PREFIXES = ("campaign.", "source.", "industry.", "test.", "form.", "engagement.", "overview.")
 
 
 def _warehouse(run_id: str) -> Path:
@@ -111,7 +111,7 @@ def _warehouse(run_id: str) -> Path:
 
 @app.get("/runs/{run_id}/explore/options", dependencies=[Depends(auth)])
 def explore_options(run_id: str):
-    return explore.options(_warehouse(run_id))
+    return explore.options(_warehouse(run_id), cfg.converted_stages)
 
 
 @app.get("/runs/{run_id}/explore/summary", dependencies=[Depends(auth)])
@@ -121,13 +121,13 @@ def explore_summary(run_id: str, start: str = Query(..., pattern=_MONTH), end: s
         raise HTTPException(400, "start after end")
     wh = _warehouse(run_id)
     out = {"start": start, "end": end,
-           "activity": explore.activity(wh, start, end),
-           "cohort": explore.cohort_metrics(wh, start, end, _COHORT_PREFIXES),
+           "activity": explore.activity(wh, start, end, cfg.converted_stages),
+           "cohort": explore.cohort_metrics(wh, start, end, _COHORT_PREFIXES, cfg.converted_stages),
            "service": explore.service_metrics(wh, start, end)}
     if compare:
         ps, pe = explore.previous_window(start, end)
-        out["previous"] = {"start": ps, "end": pe, "activity": explore.activity(wh, ps, pe),
-                           "cohort": explore.cohort_metrics(wh, ps, pe, _COHORT_PREFIXES),
+        out["previous"] = {"start": ps, "end": pe, "activity": explore.activity(wh, ps, pe, cfg.converted_stages),
+                           "cohort": explore.cohort_metrics(wh, ps, pe, _COHORT_PREFIXES, cfg.converted_stages),
                            "service": explore.service_metrics(wh, ps, pe)}
     return out
 

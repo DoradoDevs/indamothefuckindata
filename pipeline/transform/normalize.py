@@ -14,15 +14,18 @@ SCHEMA = """
 CREATE TABLE contacts (
   contact_id TEXT PRIMARY KEY, created_at TEXT, created_month TEXT,
   lifecycle_stage TEXT, source TEXT, campaign_id TEXT, company_id TEXT,
-  email_hash TEXT  -- keyed one-way hash, for Salesforce matching only; never displayed
+  email_hash TEXT,  -- keyed one-way hash, for Salesforce matching only; never displayed
+  email_opened INTEGER, email_clicked INTEGER, form_submitted INTEGER, first_form TEXT, web_visits INTEGER
 );
+CREATE TABLE lifecycle_labels (stage TEXT PRIMARY KEY, label TEXT);
 CREATE TABLE companies (
   company_id TEXT PRIMARY KEY, name TEXT, domain TEXT, industry TEXT, state TEXT, created_at TEXT
 );
 CREATE TABLE deals (
   deal_id TEXT PRIMARY KEY, amount REAL, stage TEXT, pipeline TEXT,
   created_at TEXT, closed_at TEXT, closed_month TEXT,
-  is_closed INTEGER, is_won INTEGER, contact_id TEXT, company_id TEXT
+  is_closed INTEGER, is_won INTEGER, contact_id TEXT, company_id TEXT,
+  deal_group TEXT  -- optional grouping, e.g. sponsorship tier or deal type
 );
 CREATE TABLE campaigns (
   campaign_id TEXT PRIMARY KEY, name TEXT, channel TEXT, start_date TEXT, end_date TEXT
@@ -80,6 +83,18 @@ def _domain(v: str | None) -> str | None:
     return d or None
 
 
+def _form_label(v: str | None) -> str | None:
+    """'Contact - INDATEL: #gform_4' -> 'Contact' (page/form name without site and form id)."""
+    if not v or not str(v).strip():
+        return None
+    s = str(v).split(":")[0]
+    for sep in (" - ", " | "):
+        if sep in s:
+            parts = [x.strip() for x in s.split(sep)]
+            s = parts[1] if parts[0].isupper() and len(parts) > 1 else parts[0]
+    return s.strip() or None
+
+
 def _bool(v) -> bool | None:
     if v in (None, ""):
         return None
@@ -117,10 +132,17 @@ def build_db(raw: dict[str, list[dict]], db_path: Path,
         seen.add(cid)
         p = c.get("properties", {})
         ca = _dt(p.get("createdate"))
+        # Engagement: explicit flags (aggregate-built rows) or HubSpot's last open/click dates.
+        opened = p.get("_email_opened", bool(p.get("hs_email_last_open_date")))
+        clicked = p.get("_email_clicked", bool(p.get("hs_email_last_click_date")))
+        forms = int(_num(p.get("num_conversion_events")) or 0)
         contact_rows.append((cid, ca, _month(ca), p.get("lifecyclestage"), p.get("hs_analytics_source"),
                              resolve_campaign(p.get("hs_analytics_first_touch_converting_campaign")),
-                             _first(c.get("associations"), "companies"), p.get("email_hash")))
-    con.executemany("INSERT INTO contacts VALUES (?,?,?,?,?,?,?,?)", contact_rows)
+                             _first(c.get("associations"), "companies"), p.get("email_hash"),
+                             int(bool(opened)), int(bool(clicked)), int(forms > 0),
+                             _form_label(p.get("first_conversion_event_name")),
+                             int(_num(p.get("hs_analytics_num_visits")) or 0)))
+    con.executemany("INSERT INTO contacts VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)", contact_rows)
     con.executemany("INSERT OR IGNORE INTO companies VALUES (?,?,?,?,?,?)", [
         (str(c["id"]), p.get("name"), _domain(p.get("domain")), p.get("industry"), p.get("state"),
          _dt(p.get("createdate")))
@@ -143,8 +165,9 @@ def build_db(raw: dict[str, list[dict]], db_path: Path,
             amount = _num(p.get("amount"))
         rows.append((str(d["id"]), amount, stage, p.get("pipeline"), _dt(p.get("createdate")),
                      closed_at, _month(closed_at) if is_closed else None, int(is_closed), int(is_won),
-                     _first(d.get("associations"), "contacts"), _first(d.get("associations"), "companies")))
-    con.executemany("INSERT OR IGNORE INTO deals VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
+                     _first(d.get("associations"), "contacts"), _first(d.get("associations"), "companies"),
+                     p.get("sponsorship_tier") or p.get("dealtype")))
+    con.executemany("INSERT OR IGNORE INTO deals VALUES (?,?,?,?,?,?,?,?,?,?,?,?)", rows)
     con.executemany("INSERT INTO campaigns VALUES (?,?,?,?,?)", [
         (c["id"], p.get("hs_name"), p.get("channel"), p.get("hs_start_date"), p.get("hs_end_date"))
         for c in raw.get("campaigns", []) for p in [c.get("properties", {})]
@@ -157,6 +180,7 @@ def build_db(raw: dict[str, list[dict]], db_path: Path,
     con.executemany("INSERT INTO web_traffic VALUES (?,?,?)", [
         (w["month"][:7], w.get("source"), w.get("sessions")) for w in raw.get("web_traffic", [])
     ])
+    con.executemany("INSERT INTO lifecycle_labels VALUES (?,?)", list((raw.get("lifecycle_labels") or {}).items()))
     con.executemany("INSERT INTO pipelines VALUES (?,?)", [
         (pl["id"], pl.get("label")) for pl in raw.get("pipelines", [])])
     con.commit()

@@ -78,6 +78,10 @@ async function askToken() {
   try { sessionStorage.setItem("dash_token", $("#token-input").value); } catch { /* ignore */ }
 }
 async function api(path) {
+  if (window.__STATIC__) {  // snapshot file: every response is embedded
+    if (path in window.__STATIC__) return window.__STATIC__[path];
+    throw new Error(`Not included in this snapshot: ${path}`);
+  }
   for (let attempt = 0; attempt < 3; attempt++) {
     const t = token();
     const res = await fetch(path, { headers: t ? { Authorization: `Bearer ${t}` } : {} });
@@ -324,6 +328,10 @@ function change(cur, prev, kind) {
 // ---------- overview ---------------------------------------------------------
 const TILES = [
   { key: "new_contacts", label: "New contacts", f: fmt.count, hint: "People added to HubSpot in the period." },
+  { key: "converted", label: "Reached goal status", f: fmt.count, needsKey: true,
+    hint: "Contacts added in the period who have reached the account's goal lifecycle stage." },
+  { key: "email_click_rate", label: "Clicked an email", f: fmt.pct, kind: "pts", needsKey: true,
+    hint: "Share of contacts added in the period who have ever clicked a marketing email." },
   { key: "deals_created", label: "Deals created", f: fmt.count, hint: "New deals opened in the period." },
   { key: "deals_won", label: "Deals won", f: fmt.count, hint: "Deals marked Closed won with a close date in the period." },
   { key: "won_value", label: "Won deal value", f: fmt.usdShort, hint: "Total Amount on deals won in the period. Booked value, not cash received." },
@@ -331,7 +339,16 @@ const TILES = [
   { key: "sessions", label: "Website visits", f: fmt.countShort, hint: "Website sessions in the period.", needsTraffic: true },
 ];
 
+function renderDataNotes() {
+  const notes = ((state.validation || {}).checks || []).filter((c) => c.id === "extract.warning");
+  const el = $("#data-notes");
+  el.hidden = !notes.length;
+  el.replaceChildren(h("details", {}, h("summary", {}, `About this data (${notes.length} note${notes.length === 1 ? "" : "s"} to read before drawing conclusions)`),
+    h("ul", {}, ...notes.map((n) => h("li", {}, n.message)))));
+}
+
 function renderTiles() {
+  renderDataNotes();
   const sum = state.summary, wrap = $("#tiles");
   wrap.replaceChildren();
   const first = state.opts.months[0];
@@ -339,16 +356,20 @@ function renderTiles() {
   const prevPartial = prev && prev.start < first;
   for (const t of TILES) {
     if (t.needsTraffic && !state.opts.has_traffic) continue;
+    if (t.needsKey && sum.activity[t.key] === undefined) continue;
+    if (["deals_created", "deals_won", "won_value", "win_rate"].includes(t.key) && !state.opts.has_deals) continue;
     const cur = sum.activity[t.key];
     let deltaEl = h("div", { class: "delta" }, " ");
     if (state.compare && prev) {
-      if (prev.end < first) deltaEl = h("div", { class: "delta" }, "No earlier data to compare");
+      // A partly covered earlier period (e.g. before the data starts, or containing a one-off
+      // import) makes percentage changes meaningless, so don't show them.
+      if (prevPartial) deltaEl = h("div", { class: "delta" }, "No full earlier period to compare");
       else {
         const c = change(cur, prev.activity[t.key], t.kind || "pct");
         if (c) {
           const good = c.v > 0, flat = Math.abs(c.v) < (t.kind === "pts" ? 0.5 : 0.005);
           deltaEl = h("div", { class: `delta ${flat ? "" : good ? "good" : "bad"}` },
-            `${flat ? "≈" : good ? "▲" : "▼"} ${c.text} vs ${rangeLabel(prev.start, prev.end)}${prevPartial ? " (partial)" : ""}`);
+            `${flat ? "≈" : good ? "▲" : "▼"} ${c.text} vs ${rangeLabel(prev.start, prev.end)}`);
         }
       }
     }
@@ -457,13 +478,14 @@ const BREAKDOWNS = {
     keys: () => state.opts.sources,
     cols: [
       { m: "contacts", label: "Contacts", f: fmt.count },
+      { m: "converted_rate", label: "Reached goal status", f: fmt.pct, kind: "pts", tested: "share reaching goal status" },
+      { m: "email_open_rate", label: "Opened an email", f: fmt.pct, kind: "pts", tested: "email open rate" },
+      { m: "email_click_rate", label: "Clicked an email", f: fmt.pct, kind: "pts", tested: "email click rate" },
+      { m: "form_rate", label: "Submitted a form", f: fmt.pct, kind: "pts" },
       { m: "deals_won", label: "Deals won", f: fmt.count },
-      { m: "contact_to_won_rate", label: "Contacts who became wins", f: fmt.pct, kind: "pts", tested: "share of contacts becoming wins" },
       { m: "revenue_won", label: "Won value", f: fmt.usd, short: fmt.usdShort },
-      { m: "revenue_per_contact", label: "Value per contact", f: fmt.usd, short: fmt.usdShort, tested: "value per contact" },
-      { m: "median_days_to_won", label: "Typical days to win", f: fmt.days, lowerIsBetter: true, sample: true },
     ],
-    defaultBar: "revenue_won",
+    defaultBar: "converted_rate",
   },
   industries: {
     dim: "industry", prefix: "industry.", title: "Industries",
@@ -531,7 +553,7 @@ function renderBreakdown(name, { trendOnly = false } = {}) {
   const lastMonth = state.opts.months[state.opts.months.length - 1];
   page.querySelector('[data-role="cohort-note"]').hidden = state.end < shiftMonth(lastMonth, -3);
   const cur = cohortIndex(state.summary.cohort, cfg.prefix);
-  const prev = state.compare && state.summary.previous && state.summary.previous.end >= state.opts.months[0]
+  const prev = state.compare && state.summary.previous && state.summary.previous.start >= state.opts.months[0]
     ? cohortIndex(state.summary.previous.cohort, cfg.prefix) : null;
   const keys = cfg.keys().filter((k) => cur[k]);
   const tests = cohortIndex(state.summary.cohort, `test.${cfg.dim}.`);
@@ -596,10 +618,53 @@ function renderBreakdown(name, { trendOnly = false } = {}) {
     : "Hover a number for its likely range. Click a column to sort.";
 }
 
+// ---------- forms & engagement --------------------------------------------------
+function renderEngagement() {
+  const label = state.opts.converted_label || "goal status";
+  const cur = Object.fromEntries((state.summary.cohort || []).map((m) => [m.id, m]));
+  const pct = (m) => (m ? fmt.pct(m.value) : "–");
+  const rng = (m) => (m && m.ci_low != null ? `Likely ${fmt.pct(m.ci_low)}–${fmt.pct(m.ci_high)}` : "");
+  const rows = [["email_open_rate", "Opened a marketing email"], ["email_click_rate", "Clicked a marketing email"],
+    ["form_rate", "Submitted a website form"]];
+  $("#eng-compare").replaceChildren(h("table", {},
+    h("thead", {}, h("tr", {}, h("th", {}, "Has ever…"), h("th", {}, `Reached ${label}`), h("th", {}, "Everyone else"),
+      h("th", { style: "text-align:left" }, "Stands out?"))),
+    h("tbody", {}, ...rows.map(([meas, text]) => {
+      const a = cur[`engagement.converted.${meas}`], b = cur[`engagement.not_converted.${meas}`];
+      const t = cur[`test.engagement.converted.${meas}`];
+      return h("tr", {}, h("td", {}, text),
+        h("td", { title: rng(a) }, pct(a), h("span", { class: "chg" }, a ? `of ${fmt.count(a.n)} · ${rng(a)}` : "")),
+        h("td", { title: rng(b) }, pct(b), h("span", { class: "chg" }, b ? `of ${fmt.count(b.n)} · ${rng(b)}` : "")),
+        h("td", { class: "stands" }, t && t.significant
+          ? h("span", { class: `so ${t.value > 0 ? "up" : "down"}` }, `${t.value > 0 ? "▲ Much higher" : "▼ Lower"} for ${label}`)
+          : h("span", { class: "muted" }, "No clear difference")));
+    }))));
+
+  const forms = cohortIndex(state.summary.cohort, "form.");
+  const tests = cohortIndex(state.summary.cohort, "test.form.");
+  const all = Object.keys(forms).filter((k) => forms[k].contacts);
+  const nameOf = (k) => (forms[k].contacts.description.match(/'(.*)'/) || [null, k])[1];
+  const keys = all.filter((k) => forms[k].contacts.value >= 3);
+  const tiny = all.filter((k) => forms[k].contacts.value < 3);
+  const tinyN = tiny.reduce((a, k) => a + forms[k].contacts.value, 0);
+  const tinyConv = tiny.reduce((a, k) => a + Math.round((forms[k].converted_rate || {}).value * forms[k].contacts.value || 0), 0);
+  barChart($("#eng-forms-bars"), {
+    format: fmt.pct,
+    rows: [...(tiny.length ? [{ key: "_other", label: `Other forms (${tinyN})`, color: cssVar("--s-other"),
+      value: tinyN ? tinyConv / tinyN : null, note: `${tiny.length} forms with fewer than 3 contacts each: ${tiny.map(nameOf).join(", ")}.` }] : []),
+    ...keys.map((k) => {
+      const m = forms[k].converted_rate || {}, t = (tests[k] || {}).converted_rate, n = forms[k].contacts.value;
+      return { key: k, label: `${nameOf(k)} (${n})`, color: cssVar("--s1"), value: m.value, lo: m.ci_low, hi: m.ci_high,
+        flag: t && t.significant ? `${t.value > 0 ? "▲ Clearly higher" : "▼ Clearly lower"} than other forms` : null,
+        note: n < MIN_SAMPLE ? `Small group: ${n} contacts.` : null };
+    })],
+  });
+}
+
 // ---------- service deals (Salesforce) ----------------------------------------
 function renderService() {
   const cur = Object.fromEntries((state.summary.service || []).map((m) => [m.id, m]));
-  const prev = state.compare && state.summary.previous && state.summary.previous.end >= state.opts.months[0]
+  const prev = state.compare && state.summary.previous && state.summary.previous.start >= state.opts.months[0]
     ? Object.fromEntries((state.summary.previous.service || []).map((m) => [m.id, m])) : null;
   const tiles = [
     ["service.overview.deals_won", "Service deals won", fmt.count, "pct", "Salesforce deals closed won in the period."],
@@ -744,6 +809,7 @@ function renderPage() {
   else if (BREAKDOWNS[p]) renderBreakdown(p);
   else if (p === "patterns") renderPatterns();
   else if (p === "service") renderService();
+  else if (p === "engagement") renderEngagement();
   else if (p === "findings") renderFindings();
   else if (p === "health") renderHealth();
   $("#filters").style.display = ["findings", "health", "help"].includes(p) ? "none" : "";
@@ -794,7 +860,11 @@ async function init() {
   try { saved = JSON.parse(localStorage.getItem("dash_period") || "null"); } catch { /* ignore */ }
   $("#from").replaceChildren(...monthOpts(saved && months.includes(saved.from) ? saved.from : shiftMonth(months[months.length - 1], -11)));
   $("#to").replaceChildren(...monthOpts(saved && months.includes(saved.to) ? saved.to : months[months.length - 1]));
-  if (saved) { $("#preset").value = saved.p; $("#compare").checked = saved.c; }
+  if (saved && [...$("#preset").options].some((o) => o.value === saved.p)) {
+    $("#preset").value = saved.p; $("#compare").checked = saved.c;
+  } else if (months.length <= 13) {
+    $("#preset").value = "all";  // about a year of data or less: show all of it by default
+  }
 
   for (const id of ["#preset", "#from", "#to", "#compare"]) $(id).addEventListener("change", refresh);
   $("#trend-measure").addEventListener("change", renderTrend);
@@ -807,6 +877,16 @@ async function init() {
   addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => state.summary && renderPage(), 150); });
 
   $("#tab-service").hidden = !state.opts.has_salesforce;
+  $("#tab-engagement").hidden = !state.opts.has_forms;
+  document.querySelector('[data-page="campaigns"]').hidden = state.opts.has_campaigns === false;
+  document.querySelector('[data-page="industries"]').hidden = state.opts.has_industry === false;
+  const goal = state.opts.converted_label;
+  if (goal) {
+    TILES.find((t) => t.key === "converted").label = `Reached ${goal}`;
+    BREAKDOWNS.sources.cols.find((c) => c.m === "converted_rate").label = `Reached ${goal}`;
+    BREAKDOWNS.sources.cols.find((c) => c.m === "converted_rate").tested = `share reaching ${goal}`;
+    $("#eng-title").textContent = `Who reaches ${goal}?`;
+  }
   renderFindings();
   const initial = location.hash.slice(1);
   goto(document.getElementById(`page-${initial}`) ? initial : "overview");

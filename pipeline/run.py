@@ -55,12 +55,20 @@ def _previous_metrics(cfg: Config, current_run: str) -> dict[str, float] | None:
     return {m["id"]: m["value"] for m in json.loads((prior[-1] / "metrics.json").read_text())}
 
 
-def extract(source: str, cfg: Config, csv_dir: str | None = None) -> dict:
+def _context(cfg: Config) -> str:
+    return Path(cfg.analysis_context).read_text() if cfg.analysis_context else ""
+
+
+def extract(source: str, cfg: Config, csv_dir: str | None = None, raw_file: str | None = None) -> dict:
     if source == "fixtures":
         from pipeline.extract.fixtures import generate, generate_salesforce
         raw = generate()
         raw.update(generate_salesforce(raw))
         return raw
+    if source == "raw":
+        if not raw_file:
+            sys.exit("--raw-file is required with --source raw")
+        return json.loads(Path(raw_file).read_text())
     if source == "csv":
         if not csv_dir:
             sys.exit("--csv-dir is required with --source csv")
@@ -128,7 +136,8 @@ def analyze_and_verify(cfg: Config, run_dir: Path, pack: str, metrics) -> dict:
 
 def main(argv: list[str] | None = None) -> Path:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--source", choices=["fixtures", "hubspot", "csv"], default="fixtures")
+    ap.add_argument("--source", choices=["fixtures", "hubspot", "csv", "raw"], default="fixtures")
+    ap.add_argument("--raw-file", help="Raw JSON in the extractor's shape (with --source raw)")
     ap.add_argument("--csv-dir", help="Folder of HubSpot CSV exports (with --source csv)")
     ap.add_argument("--skip-claude", action="store_true", help="Compute metrics only")
     ap.add_argument("--force", action="store_true", help="Run analysis even if validation finds errors")
@@ -154,7 +163,7 @@ def main(argv: list[str] | None = None) -> Path:
     manifest = {"run_id": run_id, "source": args.source, "started_at": datetime.now(UTC).isoformat()}
 
     log.info("extract (%s)", args.source)
-    raw = extract(args.source, cfg, args.csv_dir)
+    raw = extract(args.source, cfg, args.csv_dir, args.raw_file)
     for name, rows in raw.items():
         _write(run_dir / "raw" / f"{name}.json", rows)
     manifest["record_counts"] = {k: len(v) for k, v in raw.items() if not k.startswith("_")}
@@ -176,9 +185,10 @@ def main(argv: list[str] | None = None) -> Path:
             log.warning("validation %s: %s", c["level"], c["message"])
 
     log.info("metrics")
-    metrics = compute(con) + compute_service(con)
+    metrics = compute(con, cfg.converted_stages) + compute_service(con)
     _write(run_dir / "metrics.json", agent_pack.metrics_json(metrics))
-    pack = agent_pack.build(con, metrics, _previous_metrics(cfg, run_id))
+    pack = agent_pack.build(con, metrics, _previous_metrics(cfg, run_id), context=_context(cfg),
+                            notes=raw.get("_warnings", []))
     _write(run_dir / "agent_pack.md", pack)
     manifest["metric_count"] = len(metrics)
 

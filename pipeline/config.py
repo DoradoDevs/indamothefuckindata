@@ -26,6 +26,11 @@ class Config:
     sf_client_id: str = field(default_factory=lambda: os.environ.get("SF_CLIENT_ID", ""))
     sf_client_secret: str = field(default_factory=lambda: os.environ.get("SF_CLIENT_SECRET", ""))
     sf_api_version: str = field(default_factory=lambda: os.environ.get("SF_API_VERSION", "v61.0"))
+    # Lifecycle stages that count as "converted" (reached the account's goal status).
+    converted_stages: frozenset[str] = field(default_factory=lambda: frozenset(
+        x.strip() for x in os.environ.get("CONVERTED_STAGES", "customer").split(",") if x.strip()))
+    # Optional plain-text file describing the business context for the Claude passes.
+    analysis_context: str = field(default_factory=lambda: os.environ.get("ANALYSIS_CONTEXT", ""))
     # HubSpot record IDs to drop (e.g. the sample contacts HubSpot creates in new accounts).
     exclude_contact_ids: frozenset[str] = field(default_factory=lambda: frozenset(
         x.strip() for x in os.environ.get("EXCLUDE_CONTACT_IDS", "").split(",") if x.strip()))
