@@ -1,81 +1,112 @@
 # Project status
 
 **Last updated:** November 5, 2026
-**State:** Built and tested on sample data. **Waiting on data access** before the first real run.
+**State:** Built and tested end to end on sample data, including Salesforce. **Waiting on
+data access** for the first real run. On the day access lands, run
+`python -m pipeline.preflight --live` and follow the checklist below.
 
 Nothing in this repo contains real INDATEL data. All numbers in screenshots, tests, and
-sample runs come from the synthetic generator (`pipeline/extract/fixtures.py`).
+sample runs come from the synthetic generators in `pipeline/extract/fixtures.py`.
 
 ## Waiting on
 
 | # | Access | From | Why we need it | Unblocks |
 |---|---|---|---|---|
-| 1 | **HubSpot read-only private app token** (contacts, companies, deals, campaigns, marketing emails) | INDATEL HubSpot admin | The scheduled pipeline pulls data with it. The chat connector can't do bulk pulls, and the current user has no export permission. | First real run; daily refresh |
-| 2 | **HubSpot campaign + marketing email read permission** on the project user | INDATEL HubSpot admin | Campaign and email results are blocked for the current user. | Campaign and email pages with real data |
-| 3 | **Salesforce read-only API access** (Opportunities, Accounts, Contacts) | INDATEL Salesforce admin | Telecom service sales appear to live in Salesforce, not HubSpot. HubSpot only holds event sponsorship deals. | "Which marketing brings in money" |
-| 4 | **Compliance sign-off** on which HubSpot/Salesforce fields are in scope | INDATEL compliance | Customer records and deal values are confidential; circuit details, service locations, and call records must stay out. | First real pull |
-| 5 | **Hosting decision** (Azure Container Apps + Entra ID sign-in proposed) | INDATEL IT | Where the pipeline and dashboard run, and how staff log in. | Sharing the dashboard |
+| 1 | **HubSpot read-only private app token** (contacts, companies, deals, campaigns, marketing emails) | INDATEL HubSpot admin | The scheduled pipeline pulls data with it. The chat connector isn't for bulk pulls, and the current user has no export permission. | First real run; daily refresh |
+| 2 | **HubSpot campaign + marketing email read permission** on the project user | INDATEL HubSpot admin | Campaign and email results are blocked for the current user. | Looking at campaign data together via the connector |
+| 3 | **Salesforce read-only API access**: a connected app with the client credentials flow and a read-only integration user (Opportunity, OpportunityContactRole, Account, Contact) | INDATEL Salesforce admin | Telecom service sales appear to live in Salesforce. HubSpot only holds event sponsorship deals. | "Which marketing brings in money" (Service deals page) |
+| 4 | **Compliance sign-off** on the fields listed in [DESIGN.md §5](DESIGN.md#5-data-handling-needs-review) | INDATEL compliance | Customer records and deal values are confidential; circuit details, service locations, and call records must stay out. | First real pull |
+| 5 | **Hosting approval** (Azure Container Apps + Entra ID sign-in, see [DEPLOY.md](DEPLOY.md)) | INDATEL IT | Where it runs and how staff log in. | Sharing the dashboard |
+
+## The day access lands
+
+1. **Set secrets** (local `.env` or Azure Key Vault): `HUBSPOT_TOKEN`, `HASH_SALT` (generate
+   once, never change), `EXCLUDE_CONTACT_IDS` (HubSpot's two sample contacts),
+   `CLAUDE_CODE_OAUTH_TOKEN`, and, when available, `SF_LOGIN_URL`, `SF_CLIENT_ID`,
+   `SF_CLIENT_SECRET`.
+2. **Run preflight:** `python -m pipeline.preflight --live`. It checks every setting and
+   makes one tiny read-only call per object to confirm the token's scopes. Fix anything
+   marked ✗.
+3. **First pull without Claude:** `python -m pipeline.run --source hubspot --skip-claude`.
+   Open the dashboard's **Data health** page and compare record counts with HubSpot.
+4. **Fix what validation flags.** Items marked `VERIFY` in the extractors (campaign
+   property format, marketing email counters, association paging) are the likely spots.
+5. **Full run with Claude**, then read every finding yourself before anyone else sees the
+   dashboard.
+6. **Deploy** per [DEPLOY.md](DEPLOY.md) once hosting is approved.
+
+If HubSpot CSV exports turn up before the token: `python -m pipeline.run --source csv
+--csv-dir <folder>`.
 
 ## Done
 
-- **Pipeline end to end:** extract → normalize (personal fields dropped) → metrics →
-  Claude analysis → code check of every number → independent Claude review → API.
+- **Pipeline end to end:** extract → normalize (personal fields dropped) → validate →
+  metrics → Claude analysis → code check of every number → independent Claude review → API
+  → dashboard.
+- **Accuracy safeguards:**
+  - Python computes every number; Claude only interprets.
+  - Every rate has a 95% likely range. Every campaign, source, and industry is tested
+    against the rest, with an adjustment for testing many groups at once.
+  - The code check rejects any number not backed by a metric, group comparisons without a
+    significant test or a "could be chance" caveat, and "significant" claims without a test.
+  - Statistics cross-checked against SciPy and locked in as tests.
+  - On sample data, real patterns test as significant, and the random industry
+    difference that slipped through earlier now correctly doesn't.
+- **HubSpot extractor**, hardened: retries, clear errors for a bad token or missing scope,
+  optional data degrades to warnings, no names/phones/addresses/deal names requested,
+  email turned into a keyed one-way hash in memory.
+- **Salesforce integration** (built, waiting on access): read-only pull, matching to
+  HubSpot by hashed email then company domain, marketing credited only if it reached the
+  customer before the deal started, service-deal metrics with tests, **Service deals**
+  dashboard page.
+- **CSV importer** for HubSpot UI exports.
+- **Pull validation report** on every run; a run that fails validation never replaces the
+  dashboard's last good run.
 - **Dashboard** for sales staff and leadership: time-period filter with period-over-period
-  comparison; overview, campaigns, lead sources, industries, "what moves together", all
-  findings, data health, and plain-English definitions. Works on phones and in dark mode.
-- **Adapted to the real HubSpot account** after a read-only, summary-level look through
-  the connector (no records copied):
-  - wins detected with HubSpot's closed/won flags (the migrated Salesforce pipeline uses
-    internal stage codes)
-  - sales and sponsorship pipelines reported separately
-  - deal names not pulled (they often contain customer names)
-  - HubSpot's sample contacts can be excluded (`EXCLUDE_CONTACT_IDS`)
-- **Claude runs on the subscription** (`CLAUDE_CODE_OAUTH_TOKEN`), not the API.
-- **13 automated tests** covering metrics, personal-data stripping, the number checker,
-  the API, the dashboard queries, and the real account's data shapes.
+  comparison; overview, campaigns, lead sources, industries, service deals, "what moves
+  together", all findings, data health, and plain-English definitions. Likely ranges and a
+  "Stands out?" column say what's real and what could be luck. Works on phones and in dark
+  mode.
+- **Operations:** preflight checklist, data retention (`python -m pipeline.prune`), run
+  lock, runs published atomically (safe on Azure Files), GitHub Actions CI, hardened
+  Dockerfile, Azure deployment guide.
+- **39 automated tests**, lint clean.
+
+## Latest sample run (with Claude)
+
+9 findings. The code check rejected none (every number traced to a metric). The reviewer
+confirmed 2 and revised 7: for example, it noted that webinar sign-ups may already be
+closer to buying (selection, not proof the webinar causes sales), and it flagged borderline
+tests. About 2.5 minutes; roughly $0.80 of Claude usage at list price, which on the
+subscription counts against usage limits instead of being billed.
 
 ## What we know about the live HubSpot account
 
-From a read-only look through the connector. Details in [DESIGN.md §6](DESIGN.md#6-what-the-live-hubspot-account-looks-like-checked-via-the-connector).
+From a read-only, summary-level look through the connector. Details in
+[DESIGN.md §6](DESIGN.md#6-what-the-live-hubspot-account-looks-like-checked-via-the-connector).
 
 - HubSpot is mainly a **marketing contact database plus event sponsorships**.
 - The migrated sales pipeline is **empty**; service sales are likely in Salesforce.
 - **Campaign attribution is almost never set** on contacts. Campaign results will stay
-  thin until Marketing tags campaigns consistently. Worth raising with Marketing now,
-  since it only helps going forward.
+  thin until Marketing tags campaigns consistently. Worth raising with Marketing now.
 
-## Next steps once access lands
+## Still open (can do without access)
 
-1. **HubSpot token arrives:**
-   1. Add `HUBSPOT_TOKEN` and `EXCLUDE_CONTACT_IDS` to the pipeline host's secrets.
-   2. Run `python -m pipeline.run --source hubspot --skip-claude` and check the record
-      counts and Data health page against HubSpot.
-   3. Fix anything the extractor gets wrong (the campaign and email endpoints are
-      written from HubSpot's docs and marked `VERIFY`).
-   4. Run with Claude and review the first findings before anyone else sees them.
-2. **Salesforce access arrives:**
-   1. Build `pipeline/extract/salesforce.py` (Opportunities, Accounts, Contacts).
-   2. Match Salesforce to HubSpot by company domain and by a one-way hash of contact
-      email, computed at extract time so raw emails are never stored.
-   3. Add "marketing → won service deals" metrics and a dashboard page for them.
-3. **Hosting approved:** deploy the container, schedule the daily run, put Entra ID
-   sign-in in front of the dashboard.
-
-## Can do now, without access
-
-- **Significance testing:** confidence ranges on rates so the dashboard and Claude can
-  tell real differences from noise. (On sample data, the reviewer approved an industry
-  difference that wasn't planted. This closes that gap.)
-- **CSV importer**, in case someone with export permission can provide files sooner.
-- **Salesforce extractor skeleton** against Salesforce's API docs, ready to test.
+- **Website traffic source:** HubSpot's traffic API is legacy and tier-dependent. Decide
+  between HubSpot and Google Analytics; the "What moves together" page is ready for it.
+- **Alerts** when a scheduled run fails validation (email or Teams), once hosting is decided.
+- **Findings history:** compare this week's findings with last week's on the dashboard.
 
 ## Decisions made
 
 | Decision | Choice |
 |---|---|
 | Accuracy approach | Python computes every number; Claude only interprets; code and a second Claude review check it |
+| "Is this difference real?" | 95% ranges; each group vs. the rest; Benjamini-Hochberg adjustment; 5% threshold |
 | Claude billing | Subscription via Claude Code CLI, not API key |
-| "Revenue" on the dashboard | Labeled "won deal value" (booked value, not cash received) |
+| "Revenue" on the dashboard | Labeled "won deal value" / "service value won" (booked value, not cash received) |
+| Marketing credit for a service deal | Only if HubSpot reached the customer before the Salesforce opportunity was created |
+| Matching HubSpot ↔ Salesforce | Keyed one-way hash of email (raw emails never stored), then company web domain |
 | Dashboard audience | INDATEL sales staff and leadership, non-technical |
-| Hosting | Leaning Azure, pending INDATEL |
+| Hosting | Leaning Azure Container Apps, pending INDATEL |
 | Data handling | Personal fields dropped before analysis; no bulk copying via the chat connector; dashboard marked internal and confidential |

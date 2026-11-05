@@ -41,26 +41,46 @@ class CheckResult:
     warnings: list[str] = field(default_factory=list)
 
 
-def _close(a: float, b: float, tol: float) -> bool:
+def _close(a: float, b: float, tol: float, decimals: int | None = None) -> bool:
+    """Equal within relative tolerance, or equal at the precision the number was written."""
     if a == b:
         return True
-    return abs(a - b) <= max(abs(b) * tol, 0.005)
+    if abs(a - b) <= max(abs(b) * tol, 0.005):
+        return True
+    return decimals is not None and abs(a - b) <= 0.5 * 10 ** -decimals + 1e-9
 
 
-def _candidates(metric_value: float, unit: str) -> list[float]:
-    """Acceptable renderings of a metric: as-is, and ratios as percentages."""
-    c = [metric_value]
+def _candidates(value: float, unit: str) -> list[float]:
+    """Acceptable renderings: as-is, size of a signed difference ("0.12 below"),
+    and ratios as percentages."""
+    c = [value, abs(value)]
     if unit == "ratio":
-        c.append(metric_value * 100)
+        c += [value * 100, abs(value) * 100]
     return c
 
 
-def _parse_claim_numbers(text: str) -> list[float]:
+def _metric_values(mt: Metric) -> list[float]:
+    """Everything a metric legitimately supplies: value, 95% range ends, adjusted p-value."""
+    out: list[float] = []
+    for v in (mt.value, mt.ci_low, mt.ci_high):
+        if v is not None:
+            out += _candidates(v, mt.unit)
+    if mt.p_value is not None:
+        out.append(mt.p_value)
+    return out
+
+
+# Constants that describe the method rather than the data ("95% range", "5% level").
+_METHOD_CONSTANTS = {95.0, 0.05}
+
+
+def _parse_claim_numbers(text: str) -> list[tuple[float, int]]:
+    """(number, decimals as written) for each number in the text."""
     out = []
     for tok in _NUM.findall(text):
         raw = tok.replace("$", "").replace(",", "").rstrip("%")
         try:
-            out.append(float(raw))
+            out.append((float(raw), len(raw.split(".")[1]) if "." in raw else 0))
         except ValueError:
             pass
     return out
@@ -73,33 +93,27 @@ def check_finding(f: Finding, metrics: dict[str, Metric], min_sample: int, tol: 
         if mid not in metrics:
             r.errors.append(f"unknown metric id: {mid}")
 
+    # Anything a cited metric supplies may appear in the text.
     backed: list[float] = []
-    # Interval ends and adjusted p-values of any cited metric may appear in the text.
     for mid in set(f.evidence) | {q.metric_id for q in f.quoted_numbers}:
-        mt = metrics.get(mid)
-        if mt is None:
-            continue
-        for extra in (mt.ci_low, mt.ci_high):
-            if extra is not None:
-                backed.extend(_candidates(extra, mt.unit))
-        if mt.p_value is not None:
-            backed.append(mt.p_value)
+        if mid in metrics:
+            backed += _metric_values(metrics[mid])
     for q in f.quoted_numbers:
         m = metrics.get(q.metric_id)
         if m is None or m.value is None:
             continue
-        if not any(_close(q.value, c, tol) for c in _candidates(m.value, m.unit)):
+        if not any(_close(q.value, c, tol) for c in _metric_values(m)):
             r.errors.append(f"{q.metric_id}: quoted {q.value}, metric is {m.value}")
-        backed.extend(_candidates(m.value, m.unit) + [q.value])
+        backed.append(q.value)
 
-    # Numbers in the claim text must trace to a quoted metric. Small integers (1-12)
+    # Numbers in the claim text must trace to a cited metric. Small integers (1-12)
     # are allowed unbacked since they're usually counts of things or month lags.
-    for n in _parse_claim_numbers(f.claim):
+    for n, decimals in _parse_claim_numbers(f.claim):
         if abs(n) <= 12 and float(n).is_integer():
             continue
-        if 1900 <= n <= 2100:  # years
+        if 1900 <= n <= 2100 or n in _METHOD_CONSTANTS:  # years, method constants
             continue
-        if not any(_close(n, b, tol) for b in backed):
+        if not any(_close(n, b, tol, decimals) for b in backed):
             r.errors.append(f"number {n} in claim is not backed by a quoted metric")
 
     thin = [mid for mid in f.evidence if mid in metrics and metrics[mid].n < min_sample]

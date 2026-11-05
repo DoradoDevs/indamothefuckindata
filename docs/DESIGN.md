@@ -1,7 +1,7 @@
 # HubSpot Analytics Pipeline — Design (DRAFT)
 
-Status: draft for internal review. Built and tested on sample data; waiting on data
-access (see [STATUS.md](STATUS.md)). Built from the whiteboard sketch: HubSpot pull →
+Status: draft for internal review. Built and tested end to end on sample data,
+including Salesforce; waiting on data access (see [STATUS.md](STATUS.md)). Built from the whiteboard sketch: HubSpot pull →
 parser/organizer → Claude analytics → Claude double-check → dashboard API → dashboard.
 
 ## 1. Goal
@@ -38,8 +38,9 @@ sketch turns into in practice.
 ```
  ┌──────────────┐   raw JSON    ┌──────────────┐  SQLite +   ┌──────────────┐
  │ 1. Extract   │ ────────────▶ │ 2. Organize  │ agent pack  │ 3. Metrics   │
- │ HubSpot API  │  data/raw/    │ normalize,   │ ──────────▶ │ deterministic│
- │ or fixtures  │  <run_id>/    │ strip PII    │             │ metrics.json │
+ │ HubSpot,     │  data/raw/    │ normalize,   │ ──────────▶ │ + ranges,    │
+ │ Salesforce,  │  <run_id>/    │ strip PII,   │             │ tests        │
+ │ CSV, sample  │               │ match, check │             │ metrics.json │
  └──────────────┘               └──────────────┘             └──────┬───────┘
                                                                     │
  ┌──────────────┐  findings     ┌──────────────┐  draft      ┌──────▼───────┐
@@ -61,7 +62,8 @@ Each run gets a `run_id` (UTC timestamp). Every stage writes its output to
   private-app token in `HUBSPOT_TOKEN`, issued by the HubSpot admin. (The Claude HubSpot
   connector is for interactive lookups in chat, not bulk extraction; see §6.) Personal
   fields and deal names are never requested.
-- `salesforce.py` — *planned* (§3.7).
+- `salesforce.py` — Salesforce service deals (§3.7). Built; waiting on access.
+- `csv_import.py` — HubSpot UI export files, for use before the token exists.
 - `fixtures.py` — generates a realistic synthetic dataset with fictional names so the
   whole pipeline can be built and tested before the connector is approved. The
   synthetic data contains a few planted patterns (one strong campaign, one that
@@ -98,6 +100,18 @@ plain-English `description`. Initial set:
   sponsorship are never summed by default)
 - Data quality: % of deals with no amount, % of contacts with no source, campaign, or
   company
+- Service deals (§3.7)
+
+**Is a difference real?** (`metrics/stats.py`, no extra dependencies, cross-checked
+against SciPy in tests)
+- Every rate gets a 95% Wilson interval; means (revenue per contact) a normal interval;
+  correlations a Fisher-z interval.
+- Each campaign / source / industry is compared with all the others combined
+  (`test.<dim>.<key>.<measure>`): Fisher's exact test for rates, Welch's test for means.
+- P-values are adjusted with Benjamini-Hochberg within each family (e.g. "campaign win
+  rates"), so comparing ten campaigns doesn't manufacture a winner. Threshold: 5%.
+- The dashboard turns this into plain language: a likely-range whisker on bars and a
+  "Stands out?" column ("Higher win rate", or "No clear difference").
 
 ### 3.4 Analyze + Verify (`pipeline/analyze/`, `pipeline/verify/`)
 
@@ -105,11 +119,17 @@ plain-English `description`. Initial set:
    `--json-schema` forcing the findings format. Each finding has: title, claim, type
    (pattern / anomaly / recommendation / data-quality), cited metric IDs, every
    quoted number paired with its metric ID, confidence, and caveats.
-2. **Code check** — every metric ID must exist; every quoted number must match its
-   metric (allowing for rounding); findings that rest on small samples (`n` below a
-   threshold) must say so in caveats. Failures are rejected, with the reason recorded.
-3. **Reviewer pass** — a second `claude -p` in a fresh context gets only the surviving
-   findings and the metrics. It returns `confirmed` / `revise` / `reject` per finding,
+2. **Code check** (`verify/checks.py`):
+   - every metric ID must exist;
+   - every number in the claim must come from a cited metric (its value, its 95% range
+     ends, its adjusted p-value, or the size of a signed difference), matched at the
+     precision it was written to; invented numbers like "3.5x" are rejected;
+   - findings on small samples (`n` below a threshold) must say so in caveats;
+   - comparing groups needs a significant `test.*` metric or a "could be chance" caveat;
+   - the words "significant"/"statistically" need a cited metric marked significant.
+   Failures are rejected, with the reason recorded and shown on **All findings**.
+3. **Reviewer pass** — a second `claude -p` in a fresh context gets the surviving
+   findings and the full metrics table (so it can catch cherry-picking). It returns `confirmed` / `revise` / `reject` per finding,
    focused on causation-vs-correlation, cherry-picking, and missing caveats.
 4. Only `confirmed` findings are published as verified. Everything else is kept in the
    run folder for audit, and can be shown on the dashboard behind a "rejected" filter.
@@ -162,20 +182,40 @@ Two kinds of numbers, labeled on the page:
 Both reuse the pipeline's metric code (`publish/explore.py`), so the dashboard and
 Claude's findings can't disagree on definitions.
 
-### 3.7 Salesforce (planned, pending access)
+### 3.7 Salesforce (built, pending access)
 
 HubSpot holds marketing contacts and sponsorship deals; telecom service deals appear to
-live in Salesforce. Plan:
+live in Salesforce.
 
-- Pull Opportunities (amount, stage, close date, type), Accounts, and Contacts, read-only.
-- Match to HubSpot: companies by web domain, then normalized name; contacts by a one-way
-  hash of email computed at extract time, so raw emails are never stored.
-- New metrics: marketing source and campaign of the people on won service deals; time
-  from first marketing touch to won deal; won service value by source and campaign.
-- Dashboard: a "Marketing → service deals" page.
-- Pricing and deal values stay internal; same confidentiality rules as §5.
+- **Pull** (`extract/salesforce.py`): OAuth client credentials with a read-only integration
+  user; SOQL for Opportunity, OpportunityContactRole, Account, Contact (fields in §5).
+- **Match** (`transform/salesforce.py`), in order of confidence:
+  1. opportunity contact role → Salesforce contact → HubSpot contact with the same keyed
+     email hash (primary role first);
+  2. otherwise Salesforce account → HubSpot company with the same web domain → the
+     earliest HubSpot contact at that company.
+- **Credit rule:** marketing gets credit for a service deal only if the matched HubSpot
+  contact existed *before* the opportunity was created. Earlier deals are kept, not credited.
+- **Metrics** (`metrics/service.py`): service deals won, value, win rate, share of won deals
+  marketing reached first, days from first touch to win; by campaign and source, with
+  ranges and tests. Activity numbers use close dates in the period; campaign/source numbers
+  use contacts who came in during the period.
+- **Dashboard:** "Service deals" page, shown only when Salesforce data exists.
+- **Validation:** match rates by method; a warning if more than half of opportunities
+  can't be matched.
 
-## 4. Deployment (VPS or Azure container)
+## 4. Deployment and operations
+
+Step-by-step Azure guide: [DEPLOY.md](DEPLOY.md). Tools:
+- `python -m pipeline.preflight [--live]` — settings, secrets, and token-scope checklist.
+- `python -m pipeline.prune` — raw pulls deleted after 30 days, runs after 180, newest 5 kept.
+- Run lock (no overlapping runs); runs built in a hidden folder and published by rename;
+  the API opens finished runs read-only and immutable (safe on an Azure Files share); the
+  dashboard shows the newest run that passed validation.
+- CI (GitHub Actions): lint, tests on Python 3.11 and 3.13, dashboard JS syntax, and a
+  sample end-to-end run.
+
+### Original sketch: VPS or Azure container
 
 One container image, three entry points:
 
@@ -189,6 +229,26 @@ Secrets live in the host's secret store (Azure Key Vault / Container Apps secret
 never in the repo.
 
 ## 5. Data handling (needs review)
+
+**Fields pulled** (for compliance review; nothing else is requested):
+
+| System | Object | Fields |
+|---|---|---|
+| HubSpot | Contact | record ID, create/modified dates, lifecycle stage, original source, first-touch converting campaign, associated company; email (hashed in memory, raw value discarded) |
+| HubSpot | Company | record ID, name, web domain, industry, state, create date |
+| HubSpot | Deal | record ID, amount, stage, pipeline, create/close dates, closed/won flags, associated contact and company |
+| HubSpot | Campaign / marketing email | campaign ID, name, dates; email send/open/click counts |
+| Salesforce | Opportunity | ID, account ID, amount, stage, closed/won flags, create/close dates, type, lead source |
+| Salesforce | OpportunityContactRole | opportunity ID, contact ID, primary flag |
+| Salesforce | Account | ID, website, industry, billing state, type |
+| Salesforce | Contact | ID, account ID, create date, lead source; email (hashed in memory, raw value discarded) |
+
+Never requested: names of people, phone numbers, street addresses, deal/opportunity
+names, descriptions, notes, and any product, circuit, or service-location fields.
+
+Email hashing: HMAC-SHA256 of the lowercased email with a secret key (`HASH_SALT`) held
+in the secret store. The same key is used for both systems so they can be matched; the
+hash can't be reversed without the key, and raw emails are never written anywhere.
 
 - HubSpot contact records are personal data. The pipeline drops PII in stage 2, before
   anything reaches Claude or the API. Raw pulls (which do contain PII) stay on the

@@ -288,3 +288,23 @@ def test_back_to_back_runs_publish_atomically(tmp_path, monkeypatch):
     assert a != b and a.exists() and b.exists()
     assert not [p for p in (tmp_path / "runs").iterdir() if p.name.startswith(".")]   # no partial folders left
     assert json.loads((b / "manifest.json").read_text())["validation"] in ("ok", "warning")
+
+
+def test_verifier_accepts_real_claude_phrasing():
+    """Phrasings seen in a real analyst run, all correct, previously rejected."""
+    mets = {
+        "source.R.contact_to_won_rate": Metric("source.R.contact_to_won_rate", 0.0364, "ratio", 300, "", 0.0193, 0.0678),
+        "test.source.R.revenue_per_contact": Metric("test.source.R.revenue_per_contact", -1245.7, "usd", 300, "",
+                                                    p_value=0.0015, significant=True),
+        "campaign.w.revenue_per_contact": Metric("campaign.w.revenue_per_contact", 10267.47, "usd", 300, "",
+                                                 7784.36, 12750.59),
+    }
+    f = _f("Referrals: 3.6% of contacts won, and $1,245.70 below other sources per contact. "
+           "Webinar earns $10,267 per contact (95% range $7,784 to $12,751).",
+           [(0.0364, "source.R.contact_to_won_rate"), (-1245.7, "test.source.R.revenue_per_contact"),
+            (10267.47, "campaign.w.revenue_per_contact"), (7784.36, "campaign.w.revenue_per_contact"),
+            (12750.59, "campaign.w.revenue_per_contact")])
+    assert check_finding(f, mets, 20, 0.01).passed, check_finding(f, mets, 20, 0.01).errors
+    # ...but an invented multiple is still rejected
+    bad = _f("Webinar earns 8.2x more per contact.", [(10267.47, "campaign.w.revenue_per_contact")])
+    assert not check_finding(bad, mets, 20, 0.01).passed
