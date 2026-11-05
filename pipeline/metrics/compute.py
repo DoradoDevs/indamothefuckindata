@@ -236,7 +236,7 @@ def compute(con: sqlite3.Connection) -> list[Metric]:
                       {k: (s["contacts_with_won"], s["contacts"]) for k, s in src.items()}, src_names)
     _mean_tests(m, "source", "revenue_per_contact", "Won revenue per contact", src_rpc, src_names)
 
-    # --- Deal pipelines (e.g. sales vs. sponsorships; never mix their totals) -
+    # --- Deal pipelines (e.g. sales vs. sponsorships), each reported on its own -
     for pid, label, deals_n, closed, won, revenue in con.execute("""
         SELECT d.pipeline, COALESCE(p.label, d.pipeline), COUNT(*), SUM(d.is_closed), SUM(d.is_won),
                COALESCE(SUM(CASE WHEN d.is_won=1 THEN d.amount END),0)
