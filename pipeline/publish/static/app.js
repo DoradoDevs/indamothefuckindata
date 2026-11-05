@@ -238,6 +238,7 @@ function lineChart(el, { months, series, format, short, height = 260, left }) {
 
 /** Horizontal bar chart. rows: [{key,label,color,value,note}] */
 function barChart(el, { rows, format }) {
+  el.classList.remove("loading");
   el.replaceChildren();
   rows = rows.filter((r) => r.value != null).sort((a, b) => b.value - a.value);
   if (!rows.length) { el.append(h("p", { class: "empty" }, "No data for this period.")); return; }
@@ -595,6 +596,68 @@ function renderBreakdown(name, { trendOnly = false } = {}) {
     : "Hover a number for its likely range. Click a column to sort.";
 }
 
+// ---------- service deals (Salesforce) ----------------------------------------
+function renderService() {
+  const cur = Object.fromEntries((state.summary.service || []).map((m) => [m.id, m]));
+  const prev = state.compare && state.summary.previous && state.summary.previous.end >= state.opts.months[0]
+    ? Object.fromEntries((state.summary.previous.service || []).map((m) => [m.id, m])) : null;
+  const tiles = [
+    ["service.overview.deals_won", "Service deals won", fmt.count, "pct", "Salesforce deals closed won in the period."],
+    ["service.overview.won_value", "Service value won", fmt.usdShort, "pct", "Amount on Salesforce deals won in the period. Booked value, not cash."],
+    ["service.overview.win_rate", "Service win rate", fmt.pct, "pts", "Of service deals that finished in the period, the share won."],
+    ["service.overview.won_credited_rate", "Won deals marketing reached first", fmt.pct, "pts", "Share of won service deals where HubSpot marketing reached the customer before the deal started."],
+    ["service.overview.median_days_first_touch_to_won", "Typical days, first touch to win", fmt.days, "pct", "Median days from a contact's first appearance in HubSpot to their won service deal."],
+  ];
+  $("#service-tiles").replaceChildren(...tiles.filter(([id]) => cur[id]).map(([id, label, f, kind, hint]) => {
+    const v = cur[id].value;
+    let d = null;
+    if (prev && prev[id]) {
+      const c = change(v, prev[id].value, kind);
+      if (c) {
+        const good = id.includes("days") ? c.v < 0 : c.v > 0;
+        d = h("div", { class: `delta ${Math.abs(c.v) < 0.005 ? "" : good ? "good" : "bad"}` }, `${c.v > 0 ? "▲" : "▼"} ${c.text} vs period before`);
+      }
+    }
+    return h("div", { class: "tile" }, h("div", { class: "label" }, label, h("span", { class: "hint", title: hint, tabindex: 0, "aria-label": hint }, "?")),
+      h("div", { class: "value" }, f(v)), d || h("div", { class: "delta" }, cur[id].ci_low != null ? `Likely ${f(cur[id].ci_low)} – ${f(cur[id].ci_high)}` : " "));
+  }));
+
+  for (const [dim, el] of [["campaign", "#service-camp"], ["source", "#service-src"]]) {
+    const idx = cohortIndex(state.summary.service, `service.${dim}.`);
+    const tests = cohortIndex(state.summary.service, `test.service_${dim}.`);
+    barChart($(el), {
+      format: fmt.usd,
+      rows: Object.keys(idx).map((k) => {
+        const m = idx[k].service_value_per_contact || {}, t = (tests[k] || {}).service_value_per_contact;
+        const n = (idx[k].contacts || {}).value;
+        return { key: k, label: labelFor(dim, k), color: colorFor(dim, k), value: m.value, lo: m.ci_low, hi: m.ci_high,
+          flag: t && t.significant ? `${t.value > 0 ? "▲ Clearly higher" : "▼ Clearly lower"} than the rest` : null,
+          note: n != null && n < MIN_SAMPLE ? `Small group: ${n} contacts.` : null };
+      }),
+    });
+  }
+
+  const idx = cohortIndex(state.summary.service, "service.campaign.");
+  const tests = cohortIndex(state.summary.service, "test.service_campaign.");
+  const keys = state.opts.campaigns.map((c) => c.id).filter((k) => idx[k]);
+  const col = (k, m, f) => h("td", { title: idx[k][m] && idx[k][m].ci_low != null ? `Likely between ${f(idx[k][m].ci_low)} and ${f(idx[k][m].ci_high)}` : null },
+    f((idx[k][m] || {}).value));
+  $("#service-table").replaceChildren(h("table", {},
+    h("thead", {}, h("tr", {}, ...["Campaign", "Contacts", "Went on to a won service deal", "Service deals won", "Service value won", "Value per contact"].map((x) => h("th", {}, x)),
+      h("th", { style: "text-align:left" }, "Stands out?"))),
+    h("tbody", {}, ...keys.map((k) => {
+      const so = [];
+      for (const [m, text] of [["contact_to_service_win_rate", "share winning service deals"], ["service_value_per_contact", "value per contact"]]) {
+        const t = (tests[k] || {})[m];
+        if (t && t.significant) so.push(h("span", { class: `so ${t.value > 0 ? "up" : "down"}` }, `${t.value > 0 ? "▲ Higher" : "▼ Lower"} ${text}`));
+      }
+      return h("tr", {}, h("td", {}, h("span", { class: "key", style: `background:${colorFor("campaign", k)}` }), labelFor("campaign", k)),
+        col(k, "contacts", fmt.count), col(k, "contact_to_service_win_rate", fmt.pct), col(k, "deals_won", fmt.count),
+        col(k, "won_value", fmt.usd), col(k, "service_value_per_contact", fmt.usd),
+        h("td", { class: "stands" }, ...(so.length ? so : [h("span", { class: "muted" }, "No clear difference")])));
+    }))));
+}
+
 // ---------- patterns ---------------------------------------------------------
 function strength(r) {
   if (r == null) return "Not enough data";
@@ -680,6 +743,7 @@ function renderPage() {
   if (p === "overview") { renderTiles(); renderTrend(); }
   else if (BREAKDOWNS[p]) renderBreakdown(p);
   else if (p === "patterns") renderPatterns();
+  else if (p === "service") renderService();
   else if (p === "findings") renderFindings();
   else if (p === "health") renderHealth();
   $("#filters").style.display = ["findings", "health", "help"].includes(p) ? "none" : "";
@@ -742,6 +806,7 @@ async function init() {
   let rt;
   addEventListener("resize", () => { clearTimeout(rt); rt = setTimeout(() => state.summary && renderPage(), 150); });
 
+  $("#tab-service").hidden = !state.opts.has_salesforce;
   renderFindings();
   const initial = location.hash.slice(1);
   goto(document.getElementById(`page-${initial}`) ? initial : "overview");

@@ -17,6 +17,7 @@ import sqlite3
 from pathlib import Path
 
 from pipeline.metrics.compute import compute
+from pipeline.metrics.service import compute_service, has_salesforce
 
 MAX_SERIES = 8  # categorical palette size; extra groups fold into "Other"
 
@@ -48,7 +49,11 @@ def options(warehouse: Path) -> dict:
         """SELECT DISTINCT d.pipeline, p.label FROM deals d LEFT JOIN pipelines p ON p.pipeline_id = d.pipeline
            WHERE d.pipeline IS NOT NULL ORDER BY 1""")]
     return {"months": months, "campaigns": campaigns, "sources": sources, "industries": industries,
-            "pipelines": pipelines, "has_traffic": has_traffic}
+            "pipelines": pipelines, "has_traffic": has_traffic, "has_salesforce": has_salesforce(con)}
+
+
+def service_metrics(warehouse: Path, start: str, end: str) -> list[dict]:
+    return [m.to_dict() for m in compute_service(_open(warehouse), _month_or_fail(start), _month_or_fail(end))]
 
 
 def _shift(month: str, n: int) -> str:

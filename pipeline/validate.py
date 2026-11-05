@@ -93,6 +93,25 @@ def validate(con: sqlite3.Connection, raw: dict) -> dict:
     hashed = q("SELECT COUNT(*) FROM contacts WHERE email_hash IS NOT NULL")
     add("fill.email_hash", "info", f"{hashed:,} contacts can be matched to Salesforce by email", hashed)
 
+    try:
+        n_opps = q("SELECT COUNT(*) FROM service_deals")
+    except sqlite3.OperationalError:
+        n_opps = None
+    if n_opps:
+        add("count.sf_opportunities", "info", f"{n_opps:,} Salesforce opportunities loaded", n_opps)
+        unmatched = q("SELECT COUNT(*) FROM service_deals WHERE match_method = 'none'")
+        r = unmatched / n_opps
+        add("sf.unmatched", "warning" if r > 0.5 else "info",
+            f"{r:.0%} of Salesforce opportunities couldn't be matched to HubSpot (by contact email or company "
+            "domain); marketing can't be credited for them", round(r, 4))
+        by_contact = q("SELECT COUNT(*) FROM service_deals WHERE match_method = 'contact'")
+        by_account = q("SELECT COUNT(*) FROM service_deals WHERE match_method = 'account'")
+        add("sf.by_contact", "info", f"{by_contact:,} opportunities matched to a HubSpot contact by email, "
+            f"{by_account:,} by company domain only", by_contact)
+    elif n_opps == 0:
+        add("count.sf_opportunities.zero", "warning", "Salesforce returned no opportunities. Check the "
+            "integration user's access to Opportunity.")
+
     for w in raw.get("_warnings", []):
         add("extract.warning", "warning", w)
 

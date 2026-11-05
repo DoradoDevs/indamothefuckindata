@@ -28,6 +28,7 @@ from pipeline.analyze import claude_runner
 from pipeline.analyze.schemas import AnalystOutput, ReviewerOutput
 from pipeline.config import Config
 from pipeline.metrics.compute import compute
+from pipeline.metrics.service import compute_service
 from pipeline.transform import agent_pack
 from pipeline.transform.normalize import build_db
 from pipeline.validate import validate
@@ -51,13 +52,24 @@ def _previous_metrics(cfg: Config, current_run: str) -> dict[str, float] | None:
 
 def extract(source: str, cfg: Config) -> dict:
     if source == "fixtures":
-        from pipeline.extract.fixtures import generate
-        return generate()
+        from pipeline.extract.fixtures import generate, generate_salesforce
+        raw = generate()
+        raw.update(generate_salesforce(raw))
+        return raw
     if source == "hubspot":
         if not cfg.hubspot_token:
             sys.exit("HUBSPOT_TOKEN is not set")
         from pipeline.extract.hubspot import pull
-        return pull(cfg.hubspot_token, cfg.hash_salt)
+        raw = pull(cfg.hubspot_token, cfg.hash_salt)
+        if cfg.salesforce_configured:
+            from pipeline.extract import salesforce
+            sf = salesforce.pull(cfg.sf_login_url, cfg.sf_client_id, cfg.sf_client_secret, cfg.hash_salt,
+                                 cfg.sf_api_version)
+            raw["_warnings"] = raw.get("_warnings", []) + sf.pop("_sf_warnings", [])
+            raw.update(sf)
+        else:
+            log.info("Salesforce not configured; skipping service deals")
+        return raw
     sys.exit(f"unknown source: {source}")
 
 
@@ -128,6 +140,9 @@ def main(argv: list[str] | None = None) -> Path:
 
     log.info("organize")
     con = build_db(raw, run_dir / "warehouse.sqlite", cfg.exclude_contact_ids)
+    if raw.get("sf_opportunities") is not None:
+        from pipeline.transform.salesforce import build_sf
+        manifest["salesforce_match"] = build_sf(con, raw)
 
     log.info("validate")
     report = validate(con, raw)
@@ -138,7 +153,7 @@ def main(argv: list[str] | None = None) -> Path:
             log.warning("validation %s: %s", c["level"], c["message"])
 
     log.info("metrics")
-    metrics = compute(con)
+    metrics = compute(con) + compute_service(con)
     _write(run_dir / "metrics.json", agent_pack.metrics_json(metrics))
     pack = agent_pack.build(con, metrics, _previous_metrics(cfg, run_id))
     _write(run_dir / "agent_pack.md", pack)

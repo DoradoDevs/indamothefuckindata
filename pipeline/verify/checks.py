@@ -22,12 +22,14 @@ _SMALL_SAMPLE_WORDS = ("sample", "small n", "n=", "few ", "limited data", "low v
 _CHANCE_WORDS = ("chance", "not significant", "not statistically", "noise", "uncertain", "could be random",
                  "not a reliable difference", "may not be real")
 _SIGNIF_CLAIM = re.compile(r"\b(statistically|significant(ly)?)\b", re.I)
-_GROUP_METRIC = re.compile(r"^(campaign|source|industry|pipeline)\.([^.]+)\.(\w+)$")
+_GROUP_METRIC = re.compile(r"^(campaign|source|industry|pipeline|service\.campaign|service\.source)\.([^.]+)\.(\w+)$")
 # Measures that have a test.<dim>.<key>.<measure> metric.
 TESTED = {
     "campaign": {"contact_to_deal_rate", "win_rate", "revenue_per_contact"},
     "source": {"contact_to_won_rate", "revenue_per_contact"},
     "industry": {"win_rate"},
+    "service_campaign": {"contact_to_service_win_rate", "service_value_per_contact"},
+    "service_source": {"contact_to_service_win_rate", "service_value_per_contact"},
 }
 
 
@@ -116,8 +118,9 @@ def check_finding(f: Finding, metrics: dict[str, Metric], min_sample: int, tol: 
     families: dict[tuple[str, str], set[str]] = {}
     for mid in cited:
         mm = _GROUP_METRIC.match(mid)
-        if mm and mm.group(3) in TESTED.get(mm.group(1), ()):
-            families.setdefault((mm.group(1), mm.group(3)), set()).add(mm.group(2))
+        dim = mm.group(1).replace(".", "_") if mm else None
+        if mm and mm.group(3) in TESTED.get(dim, ()):
+            families.setdefault((dim, mm.group(3)), set()).add(mm.group(2))
     for (dim, measure), keys in families.items():
         if len(keys) < 2:
             continue

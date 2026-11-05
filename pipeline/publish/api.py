@@ -118,11 +118,13 @@ def explore_summary(run_id: str, start: str = Query(..., pattern=_MONTH), end: s
     wh = _warehouse(run_id)
     out = {"start": start, "end": end,
            "activity": explore.activity(wh, start, end),
-           "cohort": explore.cohort_metrics(wh, start, end, _COHORT_PREFIXES)}
+           "cohort": explore.cohort_metrics(wh, start, end, _COHORT_PREFIXES),
+           "service": explore.service_metrics(wh, start, end)}
     if compare:
         ps, pe = explore.previous_window(start, end)
         out["previous"] = {"start": ps, "end": pe, "activity": explore.activity(wh, ps, pe),
-                           "cohort": explore.cohort_metrics(wh, ps, pe, _COHORT_PREFIXES)}
+                           "cohort": explore.cohort_metrics(wh, ps, pe, _COHORT_PREFIXES),
+                           "service": explore.service_metrics(wh, ps, pe)}
     return out
 
 

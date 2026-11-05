@@ -21,6 +21,7 @@
     <button role="tab" data-page="campaigns">Campaigns</button>
     <button role="tab" data-page="sources">Lead sources</button>
     <button role="tab" data-page="industries">Industries</button>
+    <button role="tab" data-page="service" id="tab-service" hidden>Service deals</button>
     <button role="tab" data-page="patterns">What moves together</button>
     <button role="tab" data-page="findings">All findings</button>
     <button role="tab" data-page="health">Data health</button>
@@ -86,6 +87,21 @@
     <section class="page" id="page-campaigns"></section>
     <section class="page" id="page-sources"></section>
     <section class="page" id="page-industries"></section>
+
+    <!-- SERVICE DEALS (Salesforce matched to HubSpot) -->
+    <section class="page" id="page-service">
+      <div class="page-intro">
+        <h2>Marketing → service deals</h2>
+        <p class="sub">Telecom service deals from Salesforce, matched to the HubSpot contacts and companies marketing reached. Marketing only gets credit when it reached the customer <em>before</em> the deal started.</p>
+      </div>
+      <div class="tiles" id="service-tiles"></div>
+      <div class="grid-2">
+        <div class="card"><div class="card-head"><h3>Service value per contact, by campaign</h3></div><div class="chart" id="service-camp"></div></div>
+        <div class="card"><div class="card-head"><h3>Service value per contact, by lead source</h3></div><div class="chart" id="service-src"></div></div>
+      </div>
+      <div class="card"><div class="card-head"><div><h3>By campaign</h3><p class="muted">People who came in during the period, and the service deals credited to them since.</p></div></div>
+        <div class="table-wrap" id="service-table"></div></div>
+    </section>
 
     <!-- PATTERNS -->
     <section class="page" id="page-patterns">
@@ -154,6 +170,8 @@
           <dt>Value per contact</dt><dd>Won deal value divided by the number of contacts. A good way to compare campaigns of different sizes.</dd>
           <dt>Likely range</dt><dd>Every rate has some luck in it, especially with small groups. The likely range (the thin line on bars, or hover a number in a table) is where the true value probably sits. Wide range = less certain.</dd>
           <dt>Stands out?</dt><dd>Says when a campaign, source, or industry is clearly above or below all the others combined, after allowing for chance and for the fact that we're comparing many groups at once. "No clear difference" means any gap could just be luck.</dd>
+          <dt>Service deals</dt><dd>Telecom service deals (Ethernet, internet access, wavelength) from Salesforce. Matched to HubSpot by contact email (compared in scrambled form, so emails are never stored) or, failing that, by company website.</dd>
+          <dt>Credited</dt><dd>Marketing gets credit for a service deal only if HubSpot reached that customer before the deal was opened in Salesforce.</dd>
           <dt>Small groups</dt><dd>Rows marked "small group" rest on fewer than 20 deals. Treat them as a hint, not a conclusion.</dd>
           <dt>Findings</dt><dd>Written by Claude from the numbers. Code checks every figure against the data, and a second Claude review checks the reasoning. Anything that fails is held back.</dd>
         </dl>

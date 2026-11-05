@@ -21,9 +21,18 @@ class Config:
     # Secret key for one-way hashing of contact emails (HubSpot <-> Salesforce matching).
     # Must be identical for both sources and kept in the secret store, never in the repo.
     hash_salt: str = field(default_factory=lambda: os.environ.get("HASH_SALT", ""))
+    # Salesforce (optional; pulled alongside HubSpot when all three are set)
+    sf_login_url: str = field(default_factory=lambda: os.environ.get("SF_LOGIN_URL", ""))
+    sf_client_id: str = field(default_factory=lambda: os.environ.get("SF_CLIENT_ID", ""))
+    sf_client_secret: str = field(default_factory=lambda: os.environ.get("SF_CLIENT_SECRET", ""))
+    sf_api_version: str = field(default_factory=lambda: os.environ.get("SF_API_VERSION", "v61.0"))
     # HubSpot record IDs to drop (e.g. the sample contacts HubSpot creates in new accounts).
     exclude_contact_ids: frozenset[str] = field(default_factory=lambda: frozenset(
         x.strip() for x in os.environ.get("EXCLUDE_CONTACT_IDS", "").split(",") if x.strip()))
+
+    @property
+    def salesforce_configured(self) -> bool:
+        return bool(self.sf_login_url and self.sf_client_id and self.sf_client_secret)
 
     @property
     def runs_dir(self) -> Path:

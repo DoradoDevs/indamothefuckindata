@@ -15,6 +15,8 @@ from __future__ import annotations
 
 import math
 import random
+
+from pipeline.extract.hubspot import hash_email
 from datetime import date, datetime, timedelta, timezone
 
 CAMPAIGNS = [
@@ -42,6 +44,9 @@ PIPELINES = [
 ]
 INDUSTRIES = ["Carrier", "Enterprise", "Aggregator", "Government", "Education"]
 STATES = ["IA", "KS", "MN", "NE", "SD", "ND", "MO", "WI"]
+
+
+FIXTURE_SALT = "fixture-salt"  # sample data only; real runs use the HASH_SALT secret
 
 
 def _iso(d: date | datetime) -> str:
@@ -99,6 +104,7 @@ def generate(seed: int = 7, months: int = 24, end: date = date(2026, 10, 1)) -> 
             "id": str(100000 + i),
             "properties": {
                 "name": f"Example Company {i:03d}",
+                "domain": f"example{i:03d}.com",
                 "industry": rng.choice(INDUSTRIES),
                 "state": rng.choice(STATES),
                 "createdate": _iso(month_starts[0] - timedelta(days=rng.randint(0, 700))),
@@ -176,6 +182,7 @@ def generate(seed: int = 7, months: int = 24, end: date = date(2026, 10, 1)) -> 
                     # PII-like fields included on purpose so the PII stripper is exercised.
                     "firstname": "Test", "lastname": f"Contact{cid_n}",
                     "email": f"contact{cid_n}@example.com", "phone": "555-0100",
+                    "email_hash": hash_email(f"contact{cid_n}@example.com", FIXTURE_SALT),
                     "createdate": _iso(created),
                     "lifecyclestage": stage,
                     "hs_analytics_source": source,
@@ -211,3 +218,71 @@ def generate(seed: int = 7, months: int = 24, end: date = date(2026, 10, 1)) -> 
         "campaigns": campaigns, "email_stats": email_stats, "web_traffic": web_traffic,
         "pipelines": PIPELINES,
     }
+
+
+# --- Salesforce sample data ---------------------------------------------------------
+# Service-deal propensity by HubSpot first-touch campaign (planted pattern): webinar and
+# trade-show contacts turn into service deals far more often; social essentially never.
+SF_OPP_RATE = {"cmp-001": 0.35, "cmp-002": 0.06, "cmp-003": 0.15, "cmp-004": 0.40, "cmp-005": 0.01, None: 0.08}
+SERVICE_TYPES = [("Ethernet", 36000), ("Dedicated Internet Access", 24000), ("Wavelength", 90000)]
+
+
+def generate_salesforce(hs: dict, seed: int = 11, end: date = date(2026, 10, 1)) -> dict[str, list[dict]]:
+    """Salesforce-shaped records linked to the HubSpot sample data by email hash and domain."""
+    rng = random.Random(seed)
+    accounts, account_by_company = [], {}
+    for i, co in enumerate(hs["companies"]):
+        if rng.random() < 0.85:  # some companies exist only in HubSpot
+            aid = f"001FIX{i:05d}"
+            account_by_company[co["id"]] = aid
+            accounts.append({"Id": aid, "Website": f"https://www.{co['properties']['domain']}/",
+                             "Industry": co["properties"]["industry"], "BillingState": co["properties"]["state"],
+                             "Type": "Customer"})
+
+    sf_contacts, opps, roles = [], [], []
+    n_c = n_o = 0
+    for c in hs["contacts"]:
+        p = c["properties"]
+        if not p.get("email_hash"):
+            continue
+        company = (c.get("associations") or {}).get("companies", [None])[0]
+        account = account_by_company.get(company)
+        rate = SF_OPP_RATE.get(p.get("hs_analytics_first_touch_converting_campaign"), 0.08)
+        if account is None or rng.random() > max(rate * 2, 0.15):
+            continue
+        n_c += 1
+        sf_cid = f"003FIX{n_c:05d}"
+        hs_created = datetime.fromisoformat(p["createdate"].replace("Z", "+00:00"))
+        sf_contacts.append({"Id": sf_cid, "AccountId": account, "EmailHash": p["email_hash"],
+                            "CreatedDate": _iso(hs_created + timedelta(days=rng.randint(1, 40))),
+                            "LeadSource": "Web"})
+        if rng.random() > 0.5:
+            continue
+        n_o += 1
+        # ~10% of opportunities started before the HubSpot contact existed (no marketing credit).
+        offset = rng.randint(-90, -5) if rng.random() < 0.1 else rng.randint(15, 150)
+        created = hs_created + timedelta(days=offset)
+        svc, base = rng.choice(SERVICE_TYPES)
+        close = created + timedelta(days=max(14, round(rng.gammavariate(3, 25))))
+        closed = close.date() <= end
+        won = closed and rng.random() < 0.45
+        opp_id = f"006FIX{n_o:05d}"
+        opps.append({"Id": opp_id, "AccountId": account,
+                     "Amount": None if rng.random() < 0.05 else round(rng.lognormvariate(math.log(base), 0.35), -2),
+                     "StageName": "Closed Won" if won else ("Closed Lost" if closed else "Proposal"),
+                     "IsClosed": closed, "IsWon": won, "CloseDate": close.date().isoformat() if closed else None,
+                     "CreatedDate": _iso(created), "Type": svc, "LeadSource": "Web"})
+        if rng.random() < 0.85:  # some opportunities have no contact role; matched via account only
+            roles.append({"OpportunityId": opp_id, "ContactId": sf_cid, "IsPrimary": True})
+    # Salesforce-only customers (never in HubSpot): these opportunities can't be matched.
+    for j in range(25):
+        aid = f"001SFONLY{j:03d}"
+        accounts.append({"Id": aid, "Website": f"https://sf-only-{j}.example.net", "Industry": "Carrier",
+                         "BillingState": "IA", "Type": "Customer"})
+        n_o += 1
+        created = datetime(end.year - 1, 1 + j % 12, 1 + j, tzinfo=timezone.utc)
+        won = rng.random() < 0.45
+        opps.append({"Id": f"006FIX{n_o:05d}", "AccountId": aid, "Amount": 30000.0, "StageName": "Closed Won" if won else "Closed Lost",
+                     "IsClosed": True, "IsWon": won, "CloseDate": (created + timedelta(days=60)).date().isoformat(),
+                     "CreatedDate": _iso(created), "Type": "Ethernet", "LeadSource": "Partner"})
+    return {"sf_opportunities": opps, "sf_opp_contacts": roles, "sf_accounts": accounts, "sf_contacts": sf_contacts}
