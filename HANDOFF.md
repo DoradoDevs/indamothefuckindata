@@ -73,7 +73,11 @@ session's temporary workspace, which is wiped when the session ends. The deliver
 were sent to the project lead in chat:
 - `INDATEL-Sales-Marketing-Insights.html` — full dashboard snapshot (open in Chrome/Edge;
   the in-app preview doesn't render it).
-- The summary deck (PowerPoint + PDF) — see §7.
+- `INDATEL-HubSpot-Review.pptx` and `.pdf` — 14-slide summary deck for INDATEL (findings,
+  charts, recommendations, what we need from them). Summary level: no individual contact
+  names. Built with pptxgenjs from the run's metrics; the generator script stayed in the
+  session (it embeds INDATEL figures, so it isn't committed). To refresh it, rebuild from
+  the dashboard numbers of the newest run.
 
 **To redo the pull** (until the token exists): open a Claude Code session with the
 HubSpot connector, repeat the steps above, write the JSON to a local file outside the repo,
