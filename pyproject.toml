@@ -1,0 +1,15 @@
+[project]
+name = "hubspot-analytics"
+version = "0.1.0"
+description = "HubSpot -> metrics -> Claude analysis -> verification -> dashboard API"
+requires-python = ">=3.11"
+dependencies = ["pydantic>=2.6", "fastapi>=0.110", "uvicorn>=0.29"]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "httpx>=0.27"]
+
+[tool.setuptools.packages.find]
+include = ["pipeline*"]
+
+[tool.setuptools.package-data]
+"pipeline.analyze" = ["prompts/*.md"]
