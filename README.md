@@ -11,6 +11,7 @@ leadership. Internal and confidential.
 
 | Doc | What's in it |
 |---|---|
+| [`HANDOFF.md`](HANDOFF.md) | **Start here.** Where we are, what exists, what's next |
 | [`docs/STATUS.md`](docs/STATUS.md) | Where things stand, what we're waiting on, day-one checklist |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Architecture, accuracy safeguards, data handling, what the live account looks like |
 | [`docs/DEPLOY.md`](docs/DEPLOY.md) | Azure deployment (Container Apps, Key Vault, Entra ID sign-in) |
