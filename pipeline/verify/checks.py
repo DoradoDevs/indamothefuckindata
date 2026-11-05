@@ -4,7 +4,10 @@ Runs before the Claude reviewer pass. A finding fails if:
   * it cites a metric ID that doesn't exist,
   * a quoted number doesn't match its metric (beyond rounding tolerance),
   * a number appears in the claim text that isn't backed by a quoted metric,
-  * it rests on a small sample and doesn't say so in caveats.
+  * it rests on a small sample and doesn't say so in caveats,
+  * it compares groups (e.g. two campaigns' win rates) without either citing a
+    significance test that backs the difference or saying it could be chance,
+  * it calls something "significant" without a significant test behind it.
 """
 from __future__ import annotations
 
@@ -16,6 +19,16 @@ from pipeline.metrics.compute import Metric
 
 _NUM = re.compile(r"(?<![\w.])[-+]?\$?\d[\d,]*(?:\.\d+)?%?")
 _SMALL_SAMPLE_WORDS = ("sample", "small n", "n=", "few ", "limited data", "low volume", "only ")
+_CHANCE_WORDS = ("chance", "not significant", "not statistically", "noise", "uncertain", "could be random",
+                 "not a reliable difference", "may not be real")
+_SIGNIF_CLAIM = re.compile(r"\b(statistically|significant(ly)?)\b", re.I)
+_GROUP_METRIC = re.compile(r"^(campaign|source|industry|pipeline)\.([^.]+)\.(\w+)$")
+# Measures that have a test.<dim>.<key>.<measure> metric.
+TESTED = {
+    "campaign": {"contact_to_deal_rate", "win_rate", "revenue_per_contact"},
+    "source": {"contact_to_won_rate", "revenue_per_contact"},
+    "industry": {"win_rate"},
+}
 
 
 @dataclass
@@ -59,6 +72,16 @@ def check_finding(f: Finding, metrics: dict[str, Metric], min_sample: int, tol: 
             r.errors.append(f"unknown metric id: {mid}")
 
     backed: list[float] = []
+    # Interval ends and adjusted p-values of any cited metric may appear in the text.
+    for mid in set(f.evidence) | {q.metric_id for q in f.quoted_numbers}:
+        mt = metrics.get(mid)
+        if mt is None:
+            continue
+        for extra in (mt.ci_low, mt.ci_high):
+            if extra is not None:
+                backed.extend(_candidates(extra, mt.unit))
+        if mt.p_value is not None:
+            backed.append(mt.p_value)
     for q in f.quoted_numbers:
         m = metrics.get(q.metric_id)
         if m is None or m.value is None:
@@ -84,6 +107,31 @@ def check_finding(f: Finding, metrics: dict[str, Metric], min_sample: int, tol: 
             r.errors.append(f"relies on small samples (n<{min_sample}) without a caveat: {', '.join(thin)}")
         else:
             r.warnings.append(f"small samples: {', '.join(thin)}")
+
+    cited = set(f.evidence) | {q.metric_id for q in f.quoted_numbers}
+    caveat_text = " ".join(f.caveats).lower() + " " + f.claim.lower()
+    significant_cited = [mid for mid in cited if mid in metrics and metrics[mid].significant]
+
+    # Comparisons between groups need a test or an honest "could be chance".
+    families: dict[tuple[str, str], set[str]] = {}
+    for mid in cited:
+        mm = _GROUP_METRIC.match(mid)
+        if mm and mm.group(3) in TESTED.get(mm.group(1), ()):
+            families.setdefault((mm.group(1), mm.group(3)), set()).add(mm.group(2))
+    for (dim, measure), keys in families.items():
+        if len(keys) < 2:
+            continue
+        tests = [f"test.{dim}.{k}.{measure}" for k in keys]
+        if any(t in cited and metrics.get(t) and metrics[t].significant for t in tests):
+            continue
+        if any(w in caveat_text for w in _CHANCE_WORDS):
+            continue
+        r.errors.append(f"compares {dim} {measure} across {', '.join(sorted(keys))} without a significant "
+                        f"test.{dim}.*.{measure} metric or a caveat that the difference could be chance")
+
+    if _SIGNIF_CLAIM.search(f.claim) and not significant_cited \
+            and not re.search(r"not (statistically )?significant", f.claim, re.I):
+        r.errors.append("claims significance but cites no metric marked significant")
 
     r.passed = not r.errors
     return r

@@ -166,6 +166,11 @@ td .chg.bad { color: var(--bad); }
 .chart text.label { fill: var(--ink-2); }
 .chart text.value { fill: var(--ink); font-weight: 500; }
 .chart .line { fill: none; stroke-width: 2; stroke-linejoin: round; stroke-linecap: round; }
+.chart .whisker { stroke: var(--ink-2); stroke-width: 1.5; }
+td.stands { text-align: left; white-space: normal; min-width: 180px; }
+.so { display: block; font-size: 13px; }
+.so.up { color: var(--good); }
+.so.down { color: var(--bad); }
 .chart .crosshair { stroke: var(--axis); stroke-width: 1; }
 .chart .dim { opacity: 0.18; }
 .chart.loading { opacity: 0.5; transition: opacity 0.15s; }

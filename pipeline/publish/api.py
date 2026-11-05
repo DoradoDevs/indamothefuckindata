@@ -90,7 +90,7 @@ def get_findings(run_id: str, status: str = Query("published", pattern="^(publis
 # --- Dashboard queries ------------------------------------------------------
 
 _MONTH = "^\\d{4}-\\d{2}$"
-_COHORT_PREFIXES = ("campaign.", "source.", "industry.")
+_COHORT_PREFIXES = ("campaign.", "source.", "industry.", "test.")
 
 
 def _warehouse(run_id: str) -> Path:

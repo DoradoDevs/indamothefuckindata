@@ -244,7 +244,7 @@ function barChart(el, { rows, format }) {
   const W = Math.max(el.clientWidth, 300);
   const labelW = Math.min(220, W * 0.38), valueW = 90, bh = 20, gap = 14, T = 4;
   const H = T + rows.length * (bh + gap);
-  const max = Math.max(...rows.map((r) => r.value), 0) || 1;
+  const max = Math.max(...rows.map((r) => Math.max(r.value, r.hi ?? 0)), 0) || 1;
   const pw = W - labelW - valueW;
   const svg = s("svg", { viewBox: `0 0 ${W} ${H}`, height: H, role: "img", "aria-label": "Bar chart" });
   svg.append(s("line", { class: "baseline", x1: labelW, x2: labelW, y1: 0, y2: H - gap / 2 }));
@@ -263,13 +263,23 @@ function barChart(el, { rows, format }) {
       svg.append(s("path", { fill: r.color,
         d: `M${labelW},${y0}H${labelW + w - rr}Q${labelW + w},${y0} ${labelW + w},${y0 + rr}V${y0 + bh - rr}Q${labelW + w},${y0 + bh} ${labelW + w - rr},${y0 + bh}H${labelW}Z` }));
     }
-    const val = s("text", { x: labelW + w + 8, y: y0 + bh / 2 + 4, class: "value" });
+    let tipX = labelW + w;
+    if (r.lo != null && r.hi != null) {
+      const x1 = labelW + (Math.max(0, r.lo) / max) * pw, x2 = labelW + (r.hi / max) * pw, ym = y0 + bh / 2;
+      svg.append(s("line", { class: "whisker", x1, x2, y1: ym, y2: ym }),
+        s("line", { class: "whisker", x1, x2: x1, y1: ym - 5, y2: ym + 5 }),
+        s("line", { class: "whisker", x1: x2, x2, y1: ym - 5, y2: ym + 5 }));
+      tipX = Math.max(tipX, x2);
+    }
+    const val = s("text", { x: tipX + 8, y: y0 + bh / 2 + 4, class: "value" });
     val.textContent = format(r.value) + (r.note ? " *" : "");
     svg.append(val);
     const hit = s("rect", { x: 0, y: y0 - gap / 2, width: W, height: bh + gap, fill: "transparent", tabindex: 0 });
     const showTip = () => {
       tip.replaceChildren(h("div", { class: "t-head" }, r.label),
         h("div", { class: "t-row" }, h("span", { class: "lk", style: `background:${r.color}` }), "Value", h("strong", {}, format(r.value))),
+        r.lo != null ? h("div", { class: "muted", style: "margin-top:4px" }, `Likely between ${format(r.lo)} and ${format(r.hi)}`) : null,
+        r.flag ? h("div", { style: "margin-top:4px" }, r.flag) : null,
         r.note ? h("div", { class: "muted", style: "margin-top:4px" }, r.note) : null);
       const b = svg.getBoundingClientRect();
       placeTooltip(el, tip, ((labelW + w) / W) * b.width, (y0 / H) * b.height);
@@ -281,6 +291,7 @@ function barChart(el, { rows, format }) {
     svg.append(hit);
   });
   el.append(svg, tip);
+  if (rows.some((r) => r.lo != null)) el.append(h("p", { class: "muted" }, "The thin line on each bar shows the likely range. Wide line = less certain."));
   if (rows.some((r) => r.note)) el.append(h("p", { class: "muted" }, "* Small group. Treat as a hint, not a conclusion."));
 }
 
@@ -431,11 +442,11 @@ const BREAKDOWNS = {
     keys: () => state.opts.campaigns.map((c) => c.id),
     cols: [
       { m: "contacts", label: "Contacts", f: fmt.count },
-      { m: "contact_to_deal_rate", label: "Became deals", f: fmt.pct, kind: "pts" },
+      { m: "contact_to_deal_rate", label: "Became deals", f: fmt.pct, kind: "pts", tested: "share of contacts becoming deals" },
       { m: "deals_won", label: "Deals won", f: fmt.count },
-      { m: "win_rate", label: "Win rate", f: fmt.pct, kind: "pts", sample: true },
+      { m: "win_rate", label: "Win rate", f: fmt.pct, kind: "pts", sample: true, tested: "win rate" },
       { m: "revenue_won", label: "Won value", f: fmt.usd, short: fmt.usdShort },
-      { m: "revenue_per_contact", label: "Value per contact", f: fmt.usd, short: fmt.usdShort },
+      { m: "revenue_per_contact", label: "Value per contact", f: fmt.usd, short: fmt.usdShort, tested: "value per contact" },
     ],
     defaultBar: "revenue_per_contact",
   },
@@ -446,8 +457,9 @@ const BREAKDOWNS = {
     cols: [
       { m: "contacts", label: "Contacts", f: fmt.count },
       { m: "deals_won", label: "Deals won", f: fmt.count },
-      { m: "contact_to_won_rate", label: "Contacts who became wins", f: fmt.pct, kind: "pts" },
+      { m: "contact_to_won_rate", label: "Contacts who became wins", f: fmt.pct, kind: "pts", tested: "share of contacts becoming wins" },
       { m: "revenue_won", label: "Won value", f: fmt.usd, short: fmt.usdShort },
+      { m: "revenue_per_contact", label: "Value per contact", f: fmt.usd, short: fmt.usdShort, tested: "value per contact" },
       { m: "median_days_to_won", label: "Typical days to win", f: fmt.days, lowerIsBetter: true, sample: true },
     ],
     defaultBar: "revenue_won",
@@ -457,12 +469,25 @@ const BREAKDOWNS = {
     intro: "Results by the industry of the company on the deal. Counts deals from people who came in during the selected period.",
     keys: () => state.opts.industries,
     cols: [
-      { m: "win_rate", label: "Win rate", f: fmt.pct, kind: "pts", sample: true },
+      { m: "win_rate", label: "Win rate", f: fmt.pct, kind: "pts", sample: true, tested: "win rate" },
       { m: "revenue_won", label: "Won value", f: fmt.usd, short: fmt.usdShort },
     ],
     defaultBar: "revenue_won",
   },
 };
+
+/** Plain-language list of measures where this row is clearly above/below the rest. */
+function standsOut(cfg, testIdx, key) {
+  const out = [];
+  for (const c of cfg.cols) {
+    if (!c.tested) continue;
+    const t = (testIdx[key] || {})[c.m];
+    if (!t || !t.significant) continue;
+    const up = t.value > 0;
+    out.push({ up, text: `${up ? "Higher" : "Lower"} ${c.tested}` });
+  }
+  return out;
+}
 
 function cohortIndex(list, prefix) {
   const out = {};
@@ -508,6 +533,7 @@ function renderBreakdown(name, { trendOnly = false } = {}) {
   const prev = state.compare && state.summary.previous && state.summary.previous.end >= state.opts.months[0]
     ? cohortIndex(state.summary.previous.cohort, cfg.prefix) : null;
   const keys = cfg.keys().filter((k) => cur[k]);
+  const tests = cohortIndex(state.summary.cohort, `test.${cfg.dim}.`);
 
   // Bars
   const col = cfg.cols.find((c) => c.m === page._barSel.value);
@@ -516,7 +542,10 @@ function renderBreakdown(name, { trendOnly = false } = {}) {
     rows: keys.map((k) => {
       const m = cur[k][col.m], winN = (cur[k].win_rate || {}).n;
       const n = col.sample ? (m && m.n) : winN;
+      const t = col.tested && (tests[k] || {})[col.m];
       return { key: k, label: labelFor(cfg.dim, k), color: colorFor(cfg.dim, k), value: m ? m.value : null,
+        lo: m ? m.ci_low : null, hi: m ? m.ci_high : null,
+        flag: t && t.significant ? `${t.value > 0 ? "▲ Clearly higher" : "▼ Clearly lower"} than the rest (unlikely to be chance)` : null,
         note: n != null && n < MIN_SAMPLE ? `Small group: based on ${n} deals.` : null };
     }),
   });
@@ -532,7 +561,8 @@ function renderBreakdown(name, { trendOnly = false } = {}) {
   const th = (key, label) => h("th", { "aria-sort": sortCol === key ? sortDir : null, tabindex: 0,
     onclick: () => { page._sortDir = sortCol === key && sortDir === "descending" ? "ascending" : "descending"; page._sortCol = key; renderBreakdown(name); } }, label);
   const table = h("table", {},
-    h("thead", {}, h("tr", {}, th("_name", cfg.title.replace(/s$/, "")), ...cfg.cols.map((c) => th(c.m, c.label)))),
+    h("thead", {}, h("tr", {}, th("_name", cfg.title.replace(/s$/, "")), ...cfg.cols.map((c) => th(c.m, c.label)),
+      h("th", { style: "text-align:left", title: "Measures where this row is clearly different from all the others combined, after allowing for chance." }, "Stands out?"))),
     h("tbody", {}, ...sorted.map((k) => {
       const winN = (cur[k].win_rate || {}).n;
       const small = winN != null && winN < MIN_SAMPLE;
@@ -549,13 +579,20 @@ function renderBreakdown(name, { trendOnly = false } = {}) {
               chg = h("span", { class: `chg ${Math.abs(d.v) < 0.005 ? "" : good ? "good" : "bad"}` }, d.text);
             }
           }
-          return h("td", {}, c.f(v), chg);
-        }));
+          const m = cur[k][c.m];
+          const title = m && m.ci_low != null ? `Likely between ${c.f(m.ci_low)} and ${c.f(m.ci_high)}` : null;
+          return h("td", { title }, c.f(v), chg);
+        }),
+        h("td", { class: "stands" }, ...(() => {
+          const so = standsOut(cfg, tests, k);
+          return so.length ? so.map((x) => h("span", { class: `so ${x.up ? "up" : "down"}` }, `${x.up ? "▲" : "▼"} ${x.text}`))
+            : [h("span", { class: "muted" }, "No clear difference")];
+        })()));
     })));
   page.querySelector('[data-role="table"]').replaceChildren(table);
   page.querySelector('[data-role="table-sub"]').textContent = prev
-    ? `Small grey numbers show the change from ${rangeLabel(state.summary.previous.start, state.summary.previous.end)}. Click a column to sort.`
-    : "Click a column to sort.";
+    ? `Small grey numbers show the change from ${rangeLabel(state.summary.previous.start, state.summary.previous.end)}. Hover a number for its likely range. Click a column to sort.`
+    : "Hover a number for its likely range. Click a column to sort.";
 }
 
 // ---------- patterns ---------------------------------------------------------
@@ -581,7 +618,8 @@ function renderPatterns() {
         h("span", {}, label, h("br"), h("span", { class: "muted" }, when)),
         h("div", { class: "lag-track", title: `Correlation ${m.value == null ? "n/a" : m.value.toFixed(2)} across ${m.n} months` },
           h("div", { class: "lag-fill", style: `width:${Math.abs(m.value || 0) * 100}%` })),
-        h("span", {}, strength(m.value), h("br"), h("span", { class: "muted" }, `${m.value == null ? "–" : m.value.toFixed(2)} · ${m.n} months`))));
+        h("span", {}, strength(m.value), h("br"), h("span", { class: "muted" },
+          `${m.value == null ? "–" : m.value.toFixed(2)} · ${m.n} months · ${m.significant ? "unlikely to be chance" : "could be chance"}`))));
     }
   }
   $("#lags").replaceChildren(...(rows.length ? rows : [h("p", { class: "empty" }, "Not enough monthly data yet.")]));

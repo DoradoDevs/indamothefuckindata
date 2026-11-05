@@ -214,3 +214,28 @@ def test_real_account_shapes(tmp_path):
     assert m["pipeline.sf-guid.revenue_won"].value == 120.0  # home-currency amount preferred
     assert m["pipeline.default.revenue_won"].value == 50.0   # falls back to stage name when flags absent
     assert "Sales" in m["pipeline.sf-guid.deals"].description
+
+
+def test_verifier_requires_test_for_group_comparisons():
+    mets = {
+        "campaign.a.win_rate": Metric("campaign.a.win_rate", 0.5, "ratio", 100, "", 0.4, 0.6),
+        "campaign.b.win_rate": Metric("campaign.b.win_rate", 0.3, "ratio", 100, "", 0.21, 0.4),
+        "test.campaign.a.win_rate": Metric("test.campaign.a.win_rate", 0.2, "ratio", 100, "", p_value=0.01, significant=True),
+        "test.campaign.b.win_rate": Metric("test.campaign.b.win_rate", -0.2, "ratio", 100, "", p_value=0.2, significant=False),
+    }
+    base = [(0.5, "campaign.a.win_rate"), (0.3, "campaign.b.win_rate")]
+    # Comparison with no test and no caveat -> rejected
+    assert not check_finding(_f("A wins 50%, B wins 30%.", base), mets, 20, 0.01).passed
+    # Backed by a significant test -> ok
+    ok = _f("A wins 50%, B wins 30%.", base, evidence=[q[1] for q in base] + ["test.campaign.a.win_rate"])
+    assert check_finding(ok, mets, 20, 0.01).passed
+    # Only a non-significant test but honest caveat -> ok
+    hedged = _f("A wins 50%, B wins 30%.", base, caveats=["The gap could be chance."])
+    assert check_finding(hedged, mets, 20, 0.01).passed
+    # Claims significance on a non-significant test -> rejected
+    bad = _f("B is significantly lower.", [(0.3, "campaign.b.win_rate")],
+             evidence=["campaign.b.win_rate", "test.campaign.b.win_rate"])
+    assert not check_finding(bad, mets, 20, 0.01).passed
+    # Interval ends of a cited metric may appear in the text
+    rng = _f("A wins 50% (likely between 40% and 60%).", [(0.5, "campaign.a.win_rate")])
+    assert check_finding(rng, mets, 20, 0.01).passed

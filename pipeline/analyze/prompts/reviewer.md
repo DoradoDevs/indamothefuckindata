@@ -12,6 +12,11 @@ the reasoning. For each finding, decide:
   one metric when another cited metric points the other way). Give the corrected claim.
 - `reject` — the claim doesn't follow from the metrics, or is misleading.
 
+Use the `ci_low`/`ci_high` ranges and the `test.*` metrics (`significant`, `p_value`
+adjusted for multiple comparisons). A finding that presents a difference as real when
+its test is not significant, or whose ranges overlap heavily, should be revised or
+rejected.
+
 Also check: does the recommendation (if any) actually follow from the evidence?
 
 Return JSON matching the provided schema, one review per finding, keyed by finding_id.

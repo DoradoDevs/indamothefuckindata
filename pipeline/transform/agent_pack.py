@@ -46,12 +46,18 @@ def build(con: sqlite3.Connection, metrics: list[Metric], previous: dict[str, fl
         "## Metrics",
         "",
         "Ratios are fractions (0.25 = 25%). `n` is the sample size the metric rests on.",
+        "`95% range` is the plausible range for the true value. `q` is a p-value adjusted for",
+        "testing many groups at once; `sig` = yes means the difference is unlikely to be chance.",
+        "`test.<group>.<key>.<measure>` = that group's value minus all other groups combined.",
         "",
-        "| id | value | unit | n | description |",
-        "|---|---|---|---|---|",
+        "| id | value | unit | n | 95% range | q | sig | description |",
+        "|---|---|---|---|---|---|---|---|",
     ]
     for mt in metrics:
-        lines.append(f"| {mt.id} | {_fmt(mt.value, mt.unit)} | {mt.unit} | {mt.n} | {mt.description} |")
+        rng = f"{_fmt(mt.ci_low, mt.unit)} to {_fmt(mt.ci_high, mt.unit)}" if mt.ci_low is not None else ""
+        q = f"{mt.p_value:.4f}" if mt.p_value is not None else ""
+        sig = "" if mt.significant is None else ("yes" if mt.significant else "no")
+        lines.append(f"| {mt.id} | {_fmt(mt.value, mt.unit)} | {mt.unit} | {mt.n} | {rng} | {q} | {sig} | {mt.description} |")
 
     if previous:
         deltas = []

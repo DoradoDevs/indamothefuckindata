@@ -23,7 +23,14 @@ Rules — these are checked by code, and findings that break them are thrown out
 4. If a metric you rely on has n below {min_sample}, say so in `caveats`.
 5. Correlation is not causation. When describing a correlation, say "is associated
    with", not "drives" or "causes", and note it in caveats.
-6. Prefer 5–10 strong findings over many weak ones. Rank by business impact.
-7. Plain, direct business English. No hype.
+6. When you compare groups (campaigns, sources, industries), cite the matching
+   `test.*` metric. Only present a difference as real if its `sig` is yes. If it is
+   no, either leave the comparison out or say plainly that it could be chance.
+   Never use the words "significant" or "statistically" unless a cited metric has
+   `sig` = yes.
+7. Use the 95% range when it helps a reader judge how solid a number is. You may
+   quote its ends; they count as backed by the metric.
+8. Prefer 5–10 strong findings over many weak ones. Rank by business impact.
+9. Plain, direct business English. No hype.
 
 Return JSON matching the provided schema.
