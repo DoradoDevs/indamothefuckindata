@@ -24,7 +24,11 @@ PROPERTIES = {
     "contacts": ["createdate", "lastmodifieddate", "lifecyclestage", "hs_analytics_source",
                  "hs_analytics_first_touch_converting_campaign"],
     "companies": ["name", "industry", "state", "createdate"],
-    "deals": ["dealname", "amount", "dealstage", "pipeline", "createdate", "closedate"],
+    # hs_is_closed_won / hs_is_closed are used instead of stage IDs: pipelines migrated
+    # from Salesforce use GUID stage IDs, not "closedwon". Deal names aren't pulled;
+    # they often contain customer names and aren't needed for analysis.
+    "deals": ["amount", "amount_in_home_currency", "dealstage", "pipeline", "createdate", "closedate",
+              "hs_is_closed_won", "hs_is_closed"],
 }
 ASSOCIATIONS = {"contacts": ["companies"], "companies": [], "deals": ["contacts", "companies"]}
 
@@ -102,6 +106,15 @@ class HubSpotClient:
                 return
 
 
+    def deal_pipelines(self) -> list[dict]:
+        page = self._request("GET", "/crm/v3/pipelines/deals")
+        return [{"id": pl["id"], "label": pl.get("label"),
+                 "stages": [{"id": st["id"], "label": st.get("label"),
+                             "probability": (st.get("metadata") or {}).get("probability")}
+                            for st in pl.get("stages", [])]}
+                for pl in page.get("results", [])]
+
+
 def _flatten(obj: dict) -> dict:
     assoc = {k: [r["id"] for r in v.get("results", [])] for k, v in (obj.get("associations") or {}).items()}
     return {"id": obj["id"], "properties": obj.get("properties", {}), "associations": assoc}
@@ -110,7 +123,8 @@ def _flatten(obj: dict) -> dict:
 def pull(token: str) -> dict[str, list[dict]]:
     client = HubSpotClient(token)
     out: dict[str, list[dict]] = {t: list(client.list_objects(t)) for t in PROPERTIES}
-    for name, fn in (("campaigns", client.campaigns), ("email_stats", client.email_stats)):
+    for name, fn in (("pipelines", client.deal_pipelines), ("campaigns", client.campaigns),
+                     ("email_stats", client.email_stats)):
         try:
             out[name] = list(fn())
         except urllib.error.HTTPError as e:

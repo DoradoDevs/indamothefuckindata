@@ -101,6 +101,7 @@ function colorFor(dim, key) {
   if (key === "Other") return cssVar("--s-other");
   if (dim === "none" || key === "All") return cssVar("--s1");
   const list = dim === "campaign" ? state.opts.campaigns.map((c) => c.id)
+    : dim === "pipeline" ? state.opts.pipelines.map((p) => p.id)
     : dim === "source" ? state.opts.sources : state.opts.industries;
   const i = list.indexOf(key);
   return i >= 0 && i < 8 ? cssVar(`--s${i + 1}`) : cssVar("--s-other");
@@ -108,6 +109,7 @@ function colorFor(dim, key) {
 function labelFor(dim, key) {
   if (dim === "campaign") return (state.opts.campaigns.find((c) => c.id === key) || {}).name || key;
   if (dim === "source") return prettySource(key);
+  if (dim === "pipeline") return (state.opts.pipelines.find((p) => p.id === key) || {}).name || key;
   if (key === "All") return "Company total";
   return key;
 }
@@ -369,6 +371,7 @@ async function renderTrend() {
   const measure = $("#trend-measure").value;
   let by = $("#trend-by").value;
   if (measure === "sessions" && !["none", "source"].includes(by)) by = "none";
+  if (measure === "new_contacts" && by === "pipeline") by = "none";
   $("#trend-title").textContent = `${MEASURE[measure].label}, month by month`;
   $("#trend-sub").textContent = by === "none" ? "" : "Click a name in the key to hide or show it. Smaller groups are combined into \"Other\".";
   await seriesChart($("#trend-chart"), measure, by);
@@ -597,6 +600,8 @@ function renderHealth() {
     ["quality.won_deals_missing_amount", "Won deals with no amount", fmt.count, "Won value is understated by these deals. Ask Sales to fill in the Amount."],
     ["quality.deals_missing_amount_rate", "Deals with no amount", fmt.pct, "Share of all deals with a blank Amount."],
     ["quality.contacts_missing_source_rate", "Contacts with no source", fmt.pct, "These can't be credited to any lead source."],
+    ["quality.contacts_missing_campaign_rate", "Contacts with no campaign", fmt.pct, "Campaign results can't include these. Tagging campaigns in HubSpot fixes this going forward."],
+    ["quality.contacts_missing_company_rate", "Contacts with no company", fmt.pct, "Industry results can't include these."],
     ["quality.deals_without_contact", "Deals with no contact", fmt.count, "These can't be credited to a campaign or source."],
   ];
   $("#health-tiles").replaceChildren(...items.filter(([id]) => q(id)).map(([id, label, f, hint]) => {

@@ -143,6 +143,17 @@ def compute(con: sqlite3.Connection) -> list[Metric]:
             m.add(f"{p}.median_days_to_won", statistics.median(dtc[k]), "days", len(dtc[k]),
                   f"Median days from contact created to deal won, source {k}")
 
+    # --- Deal pipelines (e.g. sales vs. sponsorships; never mix their totals) -
+    for pid, label, deals_n, closed, won, revenue in con.execute("""
+        SELECT d.pipeline, COALESCE(p.label, d.pipeline), COUNT(*), SUM(d.is_closed), SUM(d.is_won),
+               COALESCE(SUM(CASE WHEN d.is_won=1 THEN d.amount END),0)
+        FROM deals d LEFT JOIN pipelines p ON p.pipeline_id = d.pipeline GROUP BY 1"""):
+        pp = f"pipeline.{pid}"
+        m.add(f"{pp}.deals", deals_n, "count", deals_n, f"Deals in pipeline '{label}'")
+        m.add(f"{pp}.deals_won", won or 0, "count", deals_n, f"Won deals in pipeline '{label}'")
+        m.add(f"{pp}.win_rate", _ratio(won or 0, closed or 0), "ratio", closed or 0, f"Win rate in pipeline '{label}'")
+        m.add(f"{pp}.revenue_won", float(revenue), "usd", closed or 0, f"Won value in pipeline '{label}'")
+
     # --- Industry ----------------------------------------------------------
     for ind, closed, won, revenue in con.execute("""
         SELECT COALESCE(co.industry,'unknown'), SUM(d.is_closed), SUM(d.is_won),
@@ -183,6 +194,12 @@ def compute(con: sqlite3.Connection) -> list[Metric]:
     won_missing = con.execute("SELECT COUNT(*) FROM deals WHERE is_won=1 AND amount IS NULL").fetchone()[0]
     no_src = con.execute("SELECT COUNT(*) FROM contacts WHERE source IS NULL").fetchone()[0]
     no_contact = con.execute("SELECT COUNT(*) FROM deals WHERE contact_id IS NULL").fetchone()[0]
+    no_campaign = con.execute("SELECT COUNT(*) FROM contacts WHERE campaign_id IS NULL").fetchone()[0]
+    no_company = con.execute("SELECT COUNT(*) FROM contacts WHERE company_id IS NULL").fetchone()[0]
+    m.add("quality.contacts_missing_campaign_rate", _ratio(no_campaign, n_contacts), "ratio", n_contacts,
+          "Share of contacts with no first-touch campaign (campaign results can't cover them)")
+    m.add("quality.contacts_missing_company_rate", _ratio(no_company, n_contacts), "ratio", n_contacts,
+          "Share of contacts not linked to a company (industry results can't cover them)")
     m.add("quality.deals_missing_amount_rate", _ratio(missing_amt, n_deals), "ratio", n_deals,
           "Share of deals with no amount")
     m.add("quality.won_deals_missing_amount", won_missing, "count", n_won,

@@ -121,10 +121,11 @@ def main(argv: list[str] | None = None) -> Path:
     for name, rows in raw.items():
         _write(run_dir / "raw" / f"{name}.json", rows)
     manifest["record_counts"] = {k: len(v) for k, v in raw.items() if not k.startswith("_")}
+    manifest["excluded_contact_ids"] = len(cfg.exclude_contact_ids)
     manifest["extract_warnings"] = raw.get("_warnings", [])
 
     log.info("organize")
-    con = build_db(raw, run_dir / "warehouse.sqlite")
+    con = build_db(raw, run_dir / "warehouse.sqlite", cfg.exclude_contact_ids)
 
     log.info("metrics")
     metrics = compute(con)

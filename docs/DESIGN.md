@@ -176,7 +176,27 @@ never in the repo.
   CPNI-adjacent and should be excluded at extract time. **Please confirm with
   compliance which HubSpot properties are in scope before the first real pull.**
 
-## 6. Open questions
+## 6. What the live HubSpot account looks like (checked via the connector)
+
+Read-only look, summary level only; no records copied.
+
+- The account was set up in 2025 and includes a deal pipeline migrated from Salesforce.
+  Its stage IDs are GUIDs, so wins are detected with HubSpot's `hs_is_closed_won` /
+  `hs_is_closed` flags rather than stage names.
+- Two deal pipelines: a sales pipeline (currently empty) and a sponsorship pipeline
+  (event sponsorships). They are reported separately and never summed by default.
+- Telecom service sales appear to live in Salesforce, not HubSpot. "Money in" analysis
+  will need Salesforce opportunity data joined to HubSpot contacts/companies.
+  **Pending: Salesforce read access.**
+- First-touch campaign attribution is almost never set on contacts, so campaign results
+  will be thin until campaigns are tagged consistently in HubSpot.
+- HubSpot's sample contacts exist; drop them via `EXCLUDE_CONTACT_IDS`.
+- The connected user can read contacts, companies, and deals, but not campaigns or
+  marketing emails, and has no export permission. The scheduled pipeline needs an
+  admin-issued read-only private app token; the chat connector is not a substitute
+  for bulk extraction.
+
+## 7. Open questions
 
 1. Which HubSpot hub/tier do we have? The campaigns and web-analytics APIs differ by tier
    (Marketing Hub Professional/Enterprise for campaign attribution). This decides what

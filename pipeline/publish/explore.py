@@ -25,6 +25,7 @@ GROUP_EXPR = {
     "campaign": "COALESCE(c.campaign_id, 'none')",
     "source": "COALESCE(c.source, 'UNKNOWN')",
     "industry": "COALESCE(co.industry, 'Unknown')",
+    "pipeline": "COALESCE(d.pipeline, 'none')",  # deal measures only
 }
 
 
@@ -43,8 +44,11 @@ def options(warehouse: Path) -> dict:
     sources = [r[0] for r in con.execute("SELECT DISTINCT COALESCE(source,'UNKNOWN') FROM contacts ORDER BY 1")]
     industries = [r[0] for r in con.execute("SELECT DISTINCT COALESCE(industry,'Unknown') FROM companies ORDER BY 1")]
     has_traffic = con.execute("SELECT COUNT(*) FROM web_traffic").fetchone()[0] > 0
+    pipelines = [{"id": pid, "name": label or pid} for pid, label in con.execute(
+        """SELECT DISTINCT d.pipeline, p.label FROM deals d LEFT JOIN pipelines p ON p.pipeline_id = d.pipeline
+           WHERE d.pipeline IS NOT NULL ORDER BY 1""")]
     return {"months": months, "campaigns": campaigns, "sources": sources, "industries": industries,
-            "has_traffic": has_traffic}
+            "pipelines": pipelines, "has_traffic": has_traffic}
 
 
 def _shift(month: str, n: int) -> str:
@@ -133,6 +137,8 @@ def series(warehouse: Path, measure: str, by: str, start: str, end: str) -> dict
     else:
         if measure not in MEASURES or by not in GROUP_EXPR:
             raise ValueError("bad measure or grouping")
+        if by == "pipeline" and measure == "new_contacts":
+            by = "none"  # contacts don't belong to a deal pipeline
         month_col, frm, val = MEASURES[measure]
         joiner = " AND " if " WHERE " in frm else " WHERE "
         rows = con.execute(f"""SELECT {GROUP_EXPR[by]} g, {month_col} mo, {val} FROM {frm}

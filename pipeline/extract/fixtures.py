@@ -28,6 +28,18 @@ CAMPAIGNS = [
 UNATTRIBUTED = (None, None, None, None, 0.25, 0.15, 0.30, 20000)
 OTHER_SOURCES = ["ORGANIC_SEARCH", "DIRECT_TRAFFIC", "REFERRALS"]
 TRAFFIC_SOURCES = ["ORGANIC_SEARCH", "PAID_SEARCH", "SOCIAL_MEDIA", "EMAIL_MARKETING", "DIRECT_TRAFFIC", "REFERRALS"]
+SALES_PIPELINE = "sales-0000-fixture"  # mimics a migrated pipeline with non-standard stage IDs
+PIPELINES = [
+    {"id": SALES_PIPELINE, "label": "Sales Pipeline", "stages": [
+        {"id": "stage-qual", "label": "Qualification", "probability": "0.1"},
+        {"id": "stage-prop", "label": "Proposal", "probability": "0.75"},
+        {"id": "stage-won", "label": "Closed Won", "probability": "1.0"},
+        {"id": "stage-lost", "label": "Closed Lost", "probability": "0.0"}]},
+    {"id": "default", "label": "Sponsorship Pipeline", "stages": [
+        {"id": "presentationscheduled", "label": "Meeting Scheduled", "probability": "0.6"},
+        {"id": "closedwon", "label": "Closed Won", "probability": "1.0"},
+        {"id": "closedlost", "label": "Closed Lost", "probability": "0.0"}]},
+]
 INDUSTRIES = ["Carrier", "Enterprise", "Aggregator", "Government", "Education"]
 STATES = ["IA", "KS", "MN", "NE", "SD", "ND", "MO", "WI"]
 
@@ -134,12 +146,14 @@ def generate(seed: int = 7, months: int = 24, end: date = date(2026, 10, 1)) -> 
                 won = rng.random() < p_won
                 close = deal_created + timedelta(days=max(7, round(rng.gammavariate(3, 20))))
                 closed = close.date() <= end + timedelta(days=30)
+                sponsorship = rng.random() < 0.1
+                pipeline = "default" if sponsorship else SALES_PIPELINE
                 if closed and won:
-                    dealstage, stage = "closedwon", "customer"
+                    dealstage, stage = ("closedwon" if sponsorship else "stage-won"), "customer"
                 elif closed:
-                    dealstage = "closedlost"
+                    dealstage = "closedlost" if sponsorship else "stage-lost"
                 else:
-                    dealstage = rng.choice(["qualifiedtobuy", "presentationscheduled", "contractsent"])
+                    dealstage = "presentationscheduled" if sponsorship else rng.choice(["stage-qual", "stage-prop"])
                 amount = None if rng.random() < 0.08 else round(rng.lognormvariate(math.log(mean_amt), 0.4), -2)
                 deals.append({
                     "id": str(900000 + did_n),
@@ -147,7 +161,9 @@ def generate(seed: int = 7, months: int = 24, end: date = date(2026, 10, 1)) -> 
                         "dealname": f"Example Deal {did_n:04d}",
                         "amount": None if amount is None else str(amount),
                         "dealstage": dealstage,
-                        "pipeline": "default",
+                        "pipeline": pipeline,
+                        "hs_is_closed_won": "true" if closed and won else "false",
+                        "hs_is_closed": "true" if closed else "false",
                         "createdate": _iso(deal_created),
                         "closedate": _iso(close) if closed else None,
                     },
@@ -167,6 +183,10 @@ def generate(seed: int = 7, months: int = 24, end: date = date(2026, 10, 1)) -> 
                 },
                 "associations": {"companies": [company]},
             })
+
+    for sid in ("sample-1", "sample-2"):
+        contacts.append({"id": sid, "properties": {"createdate": _iso(month_starts[0]), "lifecyclestage": "lead",
+                                                  "hs_analytics_source": "OFFLINE"}, "associations": {}})
 
     email_stats = []
     for cid, _name, channel, *_ in CAMPAIGNS:
@@ -189,4 +209,5 @@ def generate(seed: int = 7, months: int = 24, end: date = date(2026, 10, 1)) -> 
     return {
         "contacts": contacts, "companies": companies, "deals": deals,
         "campaigns": campaigns, "email_stats": email_stats, "web_traffic": web_traffic,
+        "pipelines": PIPELINES,
     }

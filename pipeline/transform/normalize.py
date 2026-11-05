@@ -31,6 +31,7 @@ CREATE TABLE email_stats (
   sent INTEGER, delivered INTEGER, opened INTEGER, clicked INTEGER
 );
 CREATE TABLE web_traffic (month TEXT, source TEXT, sessions INTEGER);
+CREATE TABLE pipelines (pipeline_id TEXT PRIMARY KEY, label TEXT);
 """
 
 # Company "name" is a business name, not personal data; kept for internal drill-down
@@ -68,7 +69,14 @@ def _first(assoc: dict | None, key: str) -> str | None:
     return str(ids[0]) if ids else None
 
 
-def build_db(raw: dict[str, list[dict]], db_path: Path) -> sqlite3.Connection:
+def _bool(v) -> bool | None:
+    if v in (None, ""):
+        return None
+    return str(v).lower() == "true"
+
+
+def build_db(raw: dict[str, list[dict]], db_path: Path,
+             exclude_contact_ids: frozenset[str] = frozenset()) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     if db_path.exists():
         db_path.unlink()
@@ -80,6 +88,7 @@ def build_db(raw: dict[str, list[dict]], db_path: Path) -> sqlite3.Connection:
          p.get("hs_analytics_source"), p.get("hs_analytics_first_touch_converting_campaign"),
          _first(c.get("associations"), "companies"))
         for c in raw.get("contacts", []) for p in [c.get("properties", {})]
+        if str(c["id"]) not in exclude_contact_ids
     ])
     con.executemany("INSERT INTO companies VALUES (?,?,?,?,?)", [
         (c["id"], p.get("name"), p.get("industry"), p.get("state"), _dt(p.get("createdate")))
@@ -90,9 +99,17 @@ def build_db(raw: dict[str, list[dict]], db_path: Path) -> sqlite3.Connection:
         p = d.get("properties", {})
         stage = (p.get("dealstage") or "").lower()
         closed_at = _dt(p.get("closedate"))
-        is_won = stage == "closedwon"
-        is_closed = is_won or stage == "closedlost"
-        rows.append((d["id"], _num(p.get("amount")), stage, p.get("pipeline"), _dt(p.get("createdate")),
+        # Prefer HubSpot's own flags; stage IDs aren't reliable across pipelines.
+        is_won = _bool(p.get("hs_is_closed_won"))
+        if is_won is None:
+            is_won = stage == "closedwon"
+        is_closed = _bool(p.get("hs_is_closed"))
+        if is_closed is None:
+            is_closed = is_won or stage == "closedlost"
+        amount = _num(p.get("amount_in_home_currency"))
+        if amount is None:
+            amount = _num(p.get("amount"))
+        rows.append((d["id"], amount, stage, p.get("pipeline"), _dt(p.get("createdate")),
                      closed_at, _month(closed_at) if is_closed else None, int(is_closed), int(is_won),
                      _first(d.get("associations"), "contacts"), _first(d.get("associations"), "companies")))
     con.executemany("INSERT INTO deals VALUES (?,?,?,?,?,?,?,?,?,?,?)", rows)
@@ -108,5 +125,7 @@ def build_db(raw: dict[str, list[dict]], db_path: Path) -> sqlite3.Connection:
     con.executemany("INSERT INTO web_traffic VALUES (?,?,?)", [
         (w["month"][:7], w.get("source"), w.get("sessions")) for w in raw.get("web_traffic", [])
     ])
+    con.executemany("INSERT INTO pipelines VALUES (?,?)", [
+        (pl["id"], pl.get("label")) for pl in raw.get("pipelines", [])])
     con.commit()
     return con

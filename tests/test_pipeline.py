@@ -188,3 +188,29 @@ def test_dashboard_served(tmp_path, monkeypatch):
     monkeypatch.setattr(api, "cfg", Config(data_dir=tmp_path, api_token=None))
     r = TestClient(api.app).get("/")
     assert r.status_code == 200 and "Sales &amp; Marketing Insights" in r.text
+
+
+def test_real_account_shapes(tmp_path):
+    """Migrated pipelines use GUID stage IDs; HubSpot's own closed/won flags must win.
+    Sample contacts are dropped; sales and sponsorship pipelines stay separate."""
+    raw = {
+        "contacts": [
+            {"id": "1", "properties": {"createdate": "2026-01-05T00:00:00Z"}},
+            {"id": "999", "properties": {"createdate": "2025-09-10T00:00:00Z"}},  # HubSpot sample contact
+        ],
+        "deals": [
+            {"id": "d1", "properties": {"dealstage": "8d3f82d4-guid", "pipeline": "sf-guid", "hs_is_closed_won": "true",
+                                        "hs_is_closed": "true", "amount": "100", "amount_in_home_currency": "120",
+                                        "closedate": "2026-02-01T00:00:00Z"}, "associations": {"contacts": ["1"]}},
+            {"id": "d2", "properties": {"dealstage": "closedwon", "pipeline": "default", "amount": "50",
+                                        "closedate": "2026-02-01T00:00:00Z"}, "associations": {"contacts": ["1"]}},
+        ],
+        "pipelines": [{"id": "sf-guid", "label": "Sales"}, {"id": "default", "label": "Sponsorship"}],
+    }
+    con = build_db(raw, tmp_path / "w.sqlite", exclude_contact_ids=frozenset({"999"}))
+    m = {x.id: x for x in compute(con)}
+    assert m["overview.contacts"].value == 1
+    assert m["pipeline.sf-guid.deals_won"].value == 1
+    assert m["pipeline.sf-guid.revenue_won"].value == 120.0  # home-currency amount preferred
+    assert m["pipeline.default.revenue_won"].value == 50.0   # falls back to stage name when flags absent
+    assert "Sales" in m["pipeline.sf-guid.deals"].description
