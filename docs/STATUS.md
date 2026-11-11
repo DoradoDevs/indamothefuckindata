@@ -1,6 +1,6 @@
 # Project status
 
-**Last updated:** November 5, 2026
+**Last updated:** November 11, 2026
 **State:** Built and tested end to end on sample data, including Salesforce. **Waiting on
 data access** for the first real run. On the day access lands, run
 `python -m pipeline.preflight --live` and follow the checklist below.
@@ -71,6 +71,17 @@ If HubSpot CSV exports turn up before the token: `python -m pipeline.run --sourc
   lock, runs published atomically (safe on Azure Files), GitHub Actions CI, hardened
   Dockerfile, Azure deployment guide.
 - **39 automated tests**, lint clean.
+
+## Second run on real HubSpot data (November 11, 2026)
+
+Same connector method and settings as Nov 5; compared record by record with the Nov 5 pull.
+
+- 4,453 contacts (+4, none deleted), 1,609 companies (+1), 22 deals (unchanged), access unchanged; tickets: 0.
+- No lifecycle changes, no deal changes, no marketing email delivered to any contact, 0 of 366 cleanup records fixed.
+- 1 of the 151 waiting website inquiries got logged follow-up; 2 new inquiries, so 152 waiting.
+- New data-quality facts: 267 contacts owned by the "Hubspot Automations" system user; all 22 deals (and 22 contacts) owned by a deactivated user; companies report 3,371 linked contacts that our access can't read; 19 company names duplicated across 44 records; 89% of contacts created in the Nov 11, 2025 migration.
+- Checker fix: a quoted sample size (n) now counts as backed by its metric (two findings had been held back for this).
+- Deliverable: `INDATEL-HubSpot-Data-Review-Week2.pdf` (12 pages: what changed, findings, data holes with trust ratings, what we need), sent to the project lead.
 
 ## First run on real HubSpot data (November 5, 2026)
 

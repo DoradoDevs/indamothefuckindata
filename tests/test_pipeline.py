@@ -423,3 +423,11 @@ def test_worklists_without_details_have_counts_only(tmp_path):
     con = build_db(TINY, tmp_path / "w.sqlite")
     out = worklists.build(con, frozenset({"customer"}))
     assert out["has_details"] is False and all(not lst["rows"] for lst in out["lists"])
+
+
+def test_check_accepts_sample_size_of_cited_metric():
+    # "n=200" next to a rate is legitimate; an n the metric doesn't have is not.
+    ok = _f("Win rate was 25.1% (n=200).", [(0.2513, "campaign.c1.win_rate"), (200, "campaign.c1.win_rate")])
+    assert check_finding(ok, METRICS, 20, 0.01).passed
+    bad = _f("Win rate was 25.1% (n=250).", [(0.2513, "campaign.c1.win_rate"), (250, "campaign.c1.win_rate")])
+    assert not check_finding(bad, METRICS, 20, 0.01).passed

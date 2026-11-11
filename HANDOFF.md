@@ -4,7 +4,7 @@
 what to do next. Keep it current: update the "Last updated" line and the sections below
 whenever something material changes.
 
-**Last updated:** November 5, 2026
+**Last updated:** November 11, 2026
 **Client:** INDATEL Services (work done under NDA, on INDATEL's Claude team account, with
 HubSpot access granted by INDATEL)
 **Project lead:** _(fill in)_ · **INDATEL contacts:** _(fill in: HubSpot admin, Salesforce admin, sponsor/marketing owner)_
@@ -111,6 +111,16 @@ Internal draft; to be reviewed with INDATEL before acting on it.
   deal close dates were bulk-edited (9 deals share one timestamp, 7 another); 50 INDATEL
   staff records sit among contacts (excluded from analysis); 366 records need cleanup.
 
+### Week 2 (Nov 11, 2026 run)
+
+Second pull, compared record by record with Nov 5 (details in `docs/STATUS.md`). Almost
+nothing changed: +4 contacts, +1 company, no stage/deal changes, no marketing email sent,
+no cleanup done, 1 inquiry followed up (152 now waiting). The Week 2 PDF report for INDATEL
+lists every data hole with a trust rating and the access, definitions, and process changes
+we need. Its generator (`report.html` + Playwright `page.pdf`) lives in the session
+workspace, like the deck. To redo it, rerun the pull, diff against the previous week's
+JSON, and update the numbers.
+
 ## 6. Blocked on / waiting for
 
 | # | What | From | Unblocks |
@@ -147,6 +157,10 @@ Internal draft; to be reviewed with INDATEL before acting on it.
 - Update this file and `docs/STATUS.md` at the end of every working session.
 
 ## 9. Changelog
+
+- **2026-11-11** — Second full HubSpot pull; week-over-week comparison; pipeline rerun
+  (3 verified, 4 revised, 2 held back findings); checker accepts quoted sample sizes;
+  Week 2 data review PDF (what changed, data holes, what we need) delivered to project lead.
 
 - **2026-11-05** — Project built end to end on sample data; Salesforce integration,
   significance testing, CSV importer, ops tooling. First full run on real INDATEL HubSpot

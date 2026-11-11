@@ -66,13 +66,16 @@ def _candidates(value: float, unit: str) -> list[float]:
 
 
 def _metric_values(mt: Metric) -> list[float]:
-    """Everything a metric legitimately supplies: value, 95% range ends, adjusted p-value."""
+    """Everything a metric legitimately supplies: value, 95% range ends, adjusted p-value,
+    and its sample size (findings often say "n=12" next to a rate)."""
     out: list[float] = []
     for v in (mt.value, mt.ci_low, mt.ci_high):
         if v is not None:
             out += _candidates(v, mt.unit)
     if mt.p_value is not None:
         out.append(mt.p_value)
+    if mt.n is not None:
+        out.append(float(mt.n))
     return out
 
 
