@@ -121,6 +121,17 @@ we need. Its generator (`report.html` + Playwright `page.pdf`) lives in the sess
 workspace, like the deck. To redo it, rerun the pull, diff against the previous week's
 JSON, and update the numbers.
 
+### Living report (v3, Nov 11, 2026)
+
+The Nov 5 deck, the Week 2 review and INDATEL's Nov 11 responses are merged into one
+versioned PDF ("INDATEL-Insights-Living-Report-v3.pdf"). Section 1 is a status tracker for
+every request; Section 3 is a weekly log that gets a new column each pull. Update and
+re-issue it as v4, v5, and so on, rather than starting new documents. INDATEL's Nov 11 responses:
+token created (to be shared privately; store as `HUBSPOT_TOKEN`); Salesforce scope to be
+discussed on the call; "Active" means different things by account type (report it per
+type); dashboard hosting queued behind INDAContract on the INDAData instance (John Tracey);
+their integration assessment doc was referenced but not yet received.
+
 ## 6. Blocked on / waiting for
 
 | # | What | From | Unblocks |
