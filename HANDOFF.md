@@ -133,7 +133,9 @@ type); dashboard hosting queued behind INDAContract on the INDAData instance (Jo
 their integration assessment doc was referenced but not yet received.
 **Nov 12 — "Active" defined:** a manual flag set by INDATEL's marketing team for clients who
 are engaged, have paid their bills, and are in good standing. So Active is an account-standing
-flag, not a sales conversion: don't present Active rates as marketing conversion. The HubSpot
+flag, not a sales conversion: don't present Active rates as marketing conversion. Marketing reviews
+the flag often, so Active/Inactive can be trusted as current; there is no formal rule beyond
+"client in good standing." The HubSpot
 token has been issued; it must be added as `HUBSPOT_TOKEN` and `api.hubapi.com` allowed in the
 environment's network settings before `--source hubspot` will work. INDATEL is now working on
 Salesforce access and AWS hosting. INDATEL uses AWS, so `docs/DEPLOY.md` is now the AWS guide.
