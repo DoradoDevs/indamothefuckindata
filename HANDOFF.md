@@ -131,6 +131,12 @@ token created (to be shared privately; store as `HUBSPOT_TOKEN`); Salesforce sco
 discussed on the call; "Active" means different things by account type (report it per
 type); dashboard hosting queued behind INDAContract on the INDAData instance (John Tracey);
 their integration assessment doc was referenced but not yet received.
+**Nov 12 — "Active" defined:** a manual flag set by INDATEL's marketing team for clients who
+are engaged, have paid their bills, and are in good standing. So Active is an account-standing
+flag, not a sales conversion: don't present Active rates as marketing conversion. The HubSpot
+token has been issued; it must be added as `HUBSPOT_TOKEN` and `api.hubapi.com` allowed in the
+environment's network settings before `--source hubspot` will work. INDATEL is now working on
+Salesforce access and AWS hosting (deployment guide is still Azure-only).
 
 ## 6. Blocked on / waiting for
 
