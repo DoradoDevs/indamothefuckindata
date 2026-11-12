@@ -33,7 +33,7 @@ GROUP_EXPR = {
 
 def _open(warehouse: Path) -> sqlite3.Connection:
     # Published runs never change, so open read-only and immutable: no file locking,
-    # which matters when the data folder is a network share (Azure Files).
+    # which matters when the data folder is a network share (EFS or Azure Files).
     return sqlite3.connect(f"file:{warehouse}?mode=ro&immutable=1", uri=True)
 
 

@@ -20,7 +20,7 @@ writes findings → code checks every number and a second Claude pass reviews th
 and marketing team.
 
 Original whiteboard plan: HubSpot pull → parser/organizer → Claude analytics (CLI on a
-VPS/Azure container) → Claude double-check → dashboard API → legible dashboard. All of
+VPS or cloud container) → Claude double-check → dashboard API → legible dashboard. All of
 those stages exist and work.
 
 ## 2. Where things are
@@ -30,7 +30,7 @@ those stages exist and work.
 | Code, docs, tests | This repo: `github.com/doradodevs/indamothefuckindata` (branch `main`) |
 | Project status detail | [`docs/STATUS.md`](docs/STATUS.md) |
 | Architecture, data handling, field list for compliance | [`docs/DESIGN.md`](docs/DESIGN.md) |
-| Azure deployment guide (draft) | [`docs/DEPLOY.md`](docs/DEPLOY.md) |
+| AWS deployment guide (draft) | [`docs/DEPLOY.md`](docs/DEPLOY.md) (Azure alternative: `docs/DEPLOY-azure.md`) |
 | Settings | [`.env.example`](.env.example) |
 | **Real INDATEL data and deliverables** | **Not in this repo, by design.** See §4 |
 
@@ -136,7 +136,7 @@ are engaged, have paid their bills, and are in good standing. So Active is an ac
 flag, not a sales conversion: don't present Active rates as marketing conversion. The HubSpot
 token has been issued; it must be added as `HUBSPOT_TOKEN` and `api.hubapi.com` allowed in the
 environment's network settings before `--source hubspot` will work. INDATEL is now working on
-Salesforce access and AWS hosting (deployment guide is still Azure-only).
+Salesforce access and AWS hosting. INDATEL uses AWS, so `docs/DEPLOY.md` is now the AWS guide.
 
 ## 6. Blocked on / waiting for
 
@@ -147,7 +147,7 @@ Salesforce access and AWS hosting (deployment guide is still Azure-only).
 | 3 | **Salesforce** read-only API access | INDATEL Salesforce admin | Marketing → service deals (code is ready) |
 | 4 | Confirm what lifecycle **"Active"** means at INDATEL | INDATEL marketing/sales ops | Correct reading of the conversion findings |
 | 5 | Compliance sign-off on fields in scope (`docs/DESIGN.md` §5) | INDATEL compliance | Production use |
-| 6 | Hosting decision (Azure Container Apps + Entra ID proposed) | INDATEL IT | Putting the dashboard online |
+| 6 | AWS hosting setup (ECS Fargate or one VM, sign-in at the load balancer; see `docs/DEPLOY.md`) and the AWS contact | INDATEL IT | Putting the dashboard online |
 | 7 | Whether sponsorship value belongs in headline totals | INDATEL leadership | Overview tile definitions |
 
 ## 7. Next steps (in order)
@@ -156,8 +156,8 @@ Salesforce access and AWS hosting (deployment guide is still Azure-only).
    through the action lists. Ask items 4 and 7 above in that meeting.
 2. **Get the token** (item 1), run `python -m pipeline.preflight --live`, then the first
    automatic pull: `python -m pipeline.run --source hubspot`.
-3. **Put the dashboard online** for INDATEL staff (`docs/DEPLOY.md`; Azure + Entra ID
-   sign-in so only INDATEL logins can see it, since it contains contact details).
+3. **Put the dashboard online** for INDATEL staff (`docs/DEPLOY.md`; AWS with sign-in
+   at the load balancer so only INDATEL logins can see it, since it contains contact details).
 4. **Connect Salesforce** (item 3) for the service-deal view.
 5. Ideas not started: findings history (week over week), alerts when a run fails
    validation, website traffic source (HubSpot vs Google Analytics).

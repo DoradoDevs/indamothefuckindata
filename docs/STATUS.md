@@ -16,11 +16,11 @@ sample runs come from the synthetic generators in `pipeline/extract/fixtures.py`
 | 2 | **HubSpot campaign + marketing email read permission** on the project user | INDATEL HubSpot admin | Campaign and email results are blocked for the current user. | Looking at campaign data together via the connector |
 | 3 | **Salesforce read-only API access**: a connected app with the client credentials flow and a read-only integration user (Opportunity, OpportunityContactRole, Account, Contact) | INDATEL Salesforce admin | Telecom service sales appear to live in Salesforce. HubSpot only holds event sponsorship deals. | "Which marketing brings in money" (Service deals page) |
 | 4 | **Compliance sign-off** on the fields listed in [DESIGN.md §5](DESIGN.md#5-data-handling-needs-review) | INDATEL compliance | Customer records and deal values are confidential; circuit details, service locations, and call records must stay out. | First real pull |
-| 5 | **Hosting approval** (Azure Container Apps + Entra ID sign-in, see [DEPLOY.md](DEPLOY.md)) | INDATEL IT | Where it runs and how staff log in. | Sharing the dashboard |
+| 5 | **Hosting approval** (AWS: ECS Fargate + EFS + load-balancer sign-in, see [DEPLOY.md](DEPLOY.md)) | INDATEL IT | Where it runs and how staff log in. | Sharing the dashboard |
 
 ## The day access lands
 
-1. **Set secrets** (local `.env` or Azure Key Vault): `HUBSPOT_TOKEN`, `HASH_SALT` (generate
+1. **Set secrets** (local `.env` or AWS Secrets Manager): `HUBSPOT_TOKEN`, `HASH_SALT` (generate
    once, never change), `EXCLUDE_CONTACT_IDS` (HubSpot's two sample contacts),
    `CLAUDE_CODE_OAUTH_TOKEN`, and, when available, `SF_LOGIN_URL`, `SF_CLIENT_ID`,
    `SF_CLIENT_SECRET`.
@@ -68,8 +68,8 @@ If HubSpot CSV exports turn up before the token: `python -m pipeline.run --sourc
   "Stands out?" column say what's real and what could be luck. Works on phones and in dark
   mode.
 - **Operations:** preflight checklist, data retention (`python -m pipeline.prune`), run
-  lock, runs published atomically (safe on Azure Files), GitHub Actions CI, hardened
-  Dockerfile, Azure deployment guide.
+  lock, runs published atomically (safe on network file systems), GitHub Actions CI, hardened
+  Dockerfile, deployment guide (AWS primary as of Nov 12; Azure kept as alternative).
 - **39 automated tests**, lint clean.
 
 ## Second run on real HubSpot data (November 11, 2026)
@@ -143,5 +143,5 @@ From a read-only, summary-level look through the connector. Details in
 | Marketing credit for a service deal | Only if HubSpot reached the customer before the Salesforce opportunity was created |
 | Matching HubSpot ↔ Salesforce | Keyed one-way hash of email (raw emails never stored), then company web domain |
 | Dashboard audience | INDATEL sales staff and leadership, non-technical |
-| Hosting | Leaning Azure Container Apps, pending INDATEL |
+| Hosting | AWS (INDATEL uses AWS); ECS Fargate or one VM, pending INDATEL IT |
 | Data handling | Personal fields dropped before analysis; no bulk copying via the chat connector; dashboard marked internal and confidential |

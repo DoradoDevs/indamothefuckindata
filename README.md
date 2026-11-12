@@ -14,7 +14,7 @@ leadership. Internal and confidential.
 | [`HANDOFF.md`](HANDOFF.md) | **Start here.** Where we are, what exists, what's next |
 | [`docs/STATUS.md`](docs/STATUS.md) | Where things stand, what we're waiting on, day-one checklist |
 | [`docs/DESIGN.md`](docs/DESIGN.md) | Architecture, accuracy safeguards, data handling, what the live account looks like |
-| [`docs/DEPLOY.md`](docs/DEPLOY.md) | Azure deployment (Container Apps, Key Vault, Entra ID sign-in) |
+| [`docs/DEPLOY.md`](docs/DEPLOY.md) | AWS deployment (ECS Fargate, EFS, Secrets Manager, load-balancer sign-in); Azure alternative in `docs/DEPLOY-azure.md` |
 
 ## Quick start
 
@@ -43,7 +43,7 @@ to `data/`, which is git-ignored.
 ## Claude auth (subscription, no API key)
 
 1. On any machine logged in to the subscription, run `claude setup-token` and copy the token.
-2. Set it as `CLAUDE_CODE_OAUTH_TOKEN` on the pipeline host (Azure: Key Vault).
+2. Set it as `CLAUDE_CODE_OAUTH_TOKEN` on the pipeline host (AWS: Secrets Manager).
 3. Make sure `ANTHROPIC_API_KEY` is **not** set. If it is, the CLI bills the API instead.
 
 ## Layout

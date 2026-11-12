@@ -152,12 +152,12 @@ FastAPI, read-only:
 - `GET /runs/{run_id}/explore/series?measure=…&by=…&start=…&end=…` — monthly trends
 
 The dashboard only talks to this API. Auth is a bearer token for now (`API_TOKEN`);
-swap for Entra ID / SSO if this runs in Azure.
+in production, company sign-in sits in front of the app (AWS load balancer authenticate rule).
 
 ### 3.6 Dashboard (`pipeline/publish/static/`)
 
 Built for sales staff and leadership, not analysts. Plain HTML/JS with no build step,
-served by the same FastAPI app at `/`, so one Azure container serves both.
+served by the same FastAPI app at `/`, so one container serves both.
 
 - **One filter row** (time period presets or custom months, plus "compare with the
   period before") scopes every number on the page, so the numbers always agree.
@@ -206,26 +206,26 @@ live in Salesforce.
 
 ## 4. Deployment and operations
 
-Step-by-step Azure guide: [DEPLOY.md](DEPLOY.md). Tools:
+Step-by-step AWS guide: [DEPLOY.md](DEPLOY.md) (Azure alternative: [DEPLOY-azure.md](DEPLOY-azure.md)). Tools:
 - `python -m pipeline.preflight [--live]` — settings, secrets, and token-scope checklist.
 - `python -m pipeline.prune` — raw pulls deleted after 30 days, runs after 180, newest 5 kept.
 - Run lock (no overlapping runs); runs built in a hidden folder and published by rename;
-  the API opens finished runs read-only and immutable (safe on an Azure Files share); the
+  the API opens finished runs read-only and immutable (safe on a network file system such as EFS); the
   dashboard shows the newest run that passed validation.
 - CI (GitHub Actions): lint, tests on Python 3.11 and 3.13, dashboard JS syntax, and a
   sample end-to-end run.
 
-### Original sketch: VPS or Azure container
+### Original sketch: VPS or cloud container
 
 One container image, three entry points:
 
-- `python -m pipeline.run` — run on a schedule (cron on a VPS, or an Azure Container
-  Apps job on a timer). Needs `HUBSPOT_TOKEN` and Claude CLI auth
+- `python -m pipeline.run` — run on a schedule (cron on a VPS, or an ECS task started
+  by EventBridge Scheduler). Needs `HUBSPOT_TOKEN` and Claude CLI auth
   (`CLAUDE_CODE_OAUTH_TOKEN` from `claude setup-token`, i.e. the subscription).
 - `uvicorn pipeline.publish.api:app` — the API, always on.
-- `data/` on a mounted volume (Azure Files) so runs survive restarts.
+- `data/` on a mounted volume (EFS) so runs survive restarts.
 
-Secrets live in the host's secret store (Azure Key Vault / Container Apps secrets),
+Secrets live in the host's secret store (AWS Secrets Manager),
 never in the repo.
 
 ## 5. Data handling (needs review)
@@ -297,8 +297,8 @@ Read-only look, summary level only; no records copied.
 4. How far back should the first backfill go?
 5. Run frequency — daily is the default assumption.
 6. Dashboard users: INDATEL sales staff and leadership (non-technical). (Decided.)
-7. Hosting: leaning Azure (Container Apps + Azure Files + Key Vault), pending INDATEL's
-   OK. Put Entra ID sign-in in front of the dashboard so staff use their work login.
+7. Hosting: AWS (INDATEL's cloud, confirmed Nov 12): ECS Fargate + EFS + Secrets Manager,
+   with sign-in at the load balancer so staff use their work login. Pending INDATEL IT.
 8. Claude stages run on Claude Code CLI with subscription auth (decided). Watch usage
    limits as run frequency grows; the runner is isolated in one file if we ever move
    to the API.

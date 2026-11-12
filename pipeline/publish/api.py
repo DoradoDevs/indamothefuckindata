@@ -3,8 +3,9 @@
     uvicorn pipeline.publish.api:app --port 8000
 
 Serves the dashboard at / and the JSON API under /runs. If API_TOKEN is set, every
-API route except /health requires `Authorization: Bearer <token>`. (In Azure, put
-Entra ID sign-in in front of the whole app instead.)
+API route except /health requires `Authorization: Bearer <token>`. (In production,
+put company sign-in in front of the whole app instead, e.g. an AWS load balancer
+authenticate rule.)
 """
 from __future__ import annotations
 

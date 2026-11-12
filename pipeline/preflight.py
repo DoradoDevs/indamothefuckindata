@@ -109,7 +109,7 @@ def run_checks(cfg: Config, live: bool = False) -> list[tuple[str, str, str]]:
     except OSError as e:
         r.append((FAIL, "Data folder", f"{cfg.data_dir} not writable: {e}"))
     r.append((OK, "Dashboard access", "API_TOKEN set") if cfg.api_token else
-             (WARN, "Dashboard access", "API_TOKEN not set; fine behind Entra ID sign-in, otherwise the API is open"))
+             (WARN, "Dashboard access", "API_TOKEN not set; fine behind load-balancer sign-in, otherwise the API is open"))
     if not cfg.exclude_contact_ids:
         r.append((WARN, "Sample contacts", "EXCLUDE_CONTACT_IDS not set; HubSpot's 2 sample contacts will be counted"))
 
